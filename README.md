@@ -1,1 +1,3 @@
-# 4dt906
+# 4dt906 - Parallel Computing
+
+C++ if same curicullum as last year
