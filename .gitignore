@@ -39,3 +39,13 @@
 
 # debug information files
 *.dwo
+
+# Data files
+*.dat
+
+# Executables from a1 assignment
+a1/pa1_code/oddevensort
+a1/pa1_code/oddevensort_par
+a1/pa1_code/pcc_seq
+a1/pa1_code/pcc_par
+a1/pa1_code/verify

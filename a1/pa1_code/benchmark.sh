@@ -38,7 +38,7 @@ for n in 64 128 256 512 1024 2048 4096; do
     mv "pccout_${n}_${n}.dat" pccout_seq.dat
 
     # --- Parallel run: writes pccout_${n}_${n}.dat, then we store as pccout_par.dat ---
-    par_output=$($par_executable $n $n $SEED 2>/dev/null)
+    par_output=$(mpirun --oversubscribe -np 4 $par_executable $n $n $SEED 2>/dev/null)
     par_time=$(echo "$par_output" | grep "Elapsed time" | sed -n 's/.*Elapsed time =  *\([0-9.]*\).*/\1/p')
 
     if [ ! -f "pccout_${n}_${n}.dat" ]; then
