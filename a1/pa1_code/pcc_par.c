@@ -62,12 +62,12 @@ void pearson_parallel(double *mm, double *std, double *local_output,
 	int local_idx = 0;
 
 	for(sample1 = 0; sample1 < ROWS-1; sample1++){
-		int summ = 0;
+		int triangle_offset = 0;
 		for(int l = 0; l <= sample1+1; l++)
-			summ += l;
+			triangle_offset += l;
 
 		for(sample2 = sample1+1; sample2 < ROWS; sample2++){
-			int global_idx = sample1 * ROWS + sample2 - summ;
+			int global_idx = sample1 * ROWS + sample2 - triangle_offset;
 			
 			// Only compute if this index is in our local range
 			if(global_idx >= local_start && global_idx < local_end) {
@@ -199,9 +199,11 @@ int main(int argc, char **argv){
 	unsigned long seed = 12345;
 	if (argc >= 4) { seed = (unsigned long)atol(argv[3]); }
 
-	//used to generate the correct filename
-	char output_filename[30];
-	snprintf(output_filename, 30, "pccout_%d_%d.dat", ROWS, COLS);
+	// Buffer size to accommodate filename pattern: "pccout_<rows>_<cols>.dat"
+	// Maximum safe buffer for large dimensions (up to 10 digits each)
+	#define FILENAME_BUFFER_SIZE 50
+	char output_filename[FILENAME_BUFFER_SIZE];
+	snprintf(output_filename, FILENAME_BUFFER_SIZE, "pccout_%d_%d.dat", ROWS, COLS);
 	
 	//calculates the size of the output
 	long long cor_size = ROWS - 1;
