@@ -2,6 +2,8 @@
 
 CC	= gcc
 CXX	= g++
+CCP = mpicc
+CXXP = mpic++
 
 all: oddevensort pcc_seq verify
 
@@ -14,10 +16,10 @@ pcc_seq: pcc_seq.cpp
 
 # --- Parallel (students add oddevensort_par.cpp and pcc_par.c) ---
 oddevensort_par: oddevensort_par.cpp
-	mpic++ oddevensort_par.cpp -std=c++17 -o oddevensort_par
+	$(CXXP) oddevensort_par.cpp -std=c++17 -o oddevensort_par
 
 pcc_par: pcc_par.c
-	mpicc pcc_par.c -lm -std=c99 -o pcc_par
+	$(CCP) pcc_par.c -lm -std=c99 -o pcc_par
 
 # PCC output verifier (floating-point comparison)
 verify: verify.c

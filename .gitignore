@@ -56,3 +56,5 @@ a1/pa1_code/verify
 *.out
 *.toc
 *.synctex.gz
+*.fls
+*.fdb_latexmk
