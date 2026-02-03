@@ -14,10 +14,10 @@ pcc_seq: pcc_seq.cpp
 
 # --- Parallel (students add oddevensort_par.cpp and pcc_par.c) ---
 oddevensort_par: oddevensort_par.cpp
-	$(CXX) oddevensort_par.cpp -std=c++17 -o oddevensort_par
+	mpic++ oddevensort_par.cpp -std=c++17 -o oddevensort_par
 
 pcc_par: pcc_par.c
-	$(CC) pcc_par.c -lm -std=c99 -o pcc_par
+	mpicc pcc_par.c -lm -std=c99 -o pcc_par
 
 # PCC output verifier (floating-point comparison)
 verify: verify.c

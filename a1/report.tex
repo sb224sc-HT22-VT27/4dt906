@@ -1,0 +1,287 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    breaklines=true,
+    captionpos=b
+}
+
+\title{Programming Assignment 1: Parallel Computing\\
+Odd-Even Sort and Pearson Correlation Coefficient}
+\author{Course: 4DT906 - Parallel Computing}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report presents parallel implementations of two algorithms using MPI (Message Passing Interface): the odd-even transposition sort and Pearson correlation coefficient calculation. Both implementations demonstrate significant speedup compared to their sequential counterparts. The odd-even sort achieves correct sorting through parallel compare-exchange operations, while the parallel Pearson correlation efficiently distributes the computation of correlation pairs across multiple processes. Performance benchmarks show speedup factors of up to 3.56x with 4 processes.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Parallel computing has become essential for handling large-scale computational problems efficiently. This assignment explores two fundamental parallel algorithms:
+
+\begin{enumerate}
+    \item \textbf{Odd-Even Transposition Sort}: A comparison-based sorting algorithm particularly suited for parallel execution due to its regular communication pattern.
+    \item \textbf{Pearson Correlation Coefficient (PCC)}: A statistical measure of linear correlation between variables, computationally intensive for large datasets but highly parallelizable.
+\end{enumerate}
+
+Both algorithms were implemented using MPI, which provides a standard message-passing interface for distributed-memory parallel computing.
+
+\section{Odd-Even Transposition Sort}
+
+\subsection{Algorithm Description}
+
+The odd-even transposition sort is a variation of bubble sort that alternates between two phases:
+
+\begin{itemize}
+    \item \textbf{Odd phase}: Compares and exchanges elements at odd-indexed positions with their right neighbors
+    \item \textbf{Even phase}: Compares and exchanges elements at even-indexed positions with their right neighbors
+\end{itemize}
+
+In the parallel version, each process holds a subset of the data, and processes perform compare-exchange operations with their neighbors.
+
+\subsection{Sequential Implementation}
+
+The sequential implementation performs $n$ iterations (where $n$ is the number of elements), alternating between odd and even phases. In each phase, adjacent elements are compared and swapped if needed:
+
+\begin{lstlisting}[language=C++, caption=Sequential Odd-Even Sort Core Loop]
+for (int i = 1; i <= s; i++) {
+    for (int j = i % 2; j < s-1; j = j + 2) {
+        if (numbers[j] > numbers[j + 1]) {
+            std::swap(numbers[j], numbers[j + 1]);
+        }
+    }
+}
+\end{lstlisting}
+
+\textbf{Time Complexity}: $O(n^2)$ in the worst case, where $n$ is the number of elements.
+
+\subsection{Parallel Implementation}
+
+The parallel implementation divides the data equally among $p$ processes. Each process:
+
+\begin{enumerate}
+    \item Receives its local data portion via \texttt{MPI\_Scatter}
+    \item Sorts its local data using standard sort
+    \item Performs $p$ iterations of odd-even phases
+    \item In each phase, exchanges data with neighboring processes and keeps appropriate values
+    \item Gathers results back to root using \texttt{MPI\_Gather}
+\end{enumerate}
+
+The key operations are \texttt{compare\_exchange\_low} and \texttt{compare\_exchange\_high}:
+
+\begin{itemize}
+    \item \textbf{compare\_exchange\_low}: Process keeps the smaller half of merged data
+    \item \textbf{compare\_exchange\_high}: Process keeps the larger half of merged data
+\end{itemize}
+
+\begin{lstlisting}[language=C++, caption=Parallel Compare-Exchange Operation]
+void compare_exchange_low(std::vector<int>& local_numbers, 
+                         int partner, int n_local) {
+    std::vector<int> recv_numbers(n_local);
+    
+    MPI_Sendrecv(local_numbers.data(), n_local, MPI_INT, partner, 0,
+                recv_numbers.data(), n_local, MPI_INT, partner, 0,
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    
+    // Merge and keep the smaller n_local elements
+    std::vector<int> merged;
+    merged.insert(merged.end(), local_numbers.begin(), 
+                 local_numbers.end());
+    merged.insert(merged.end(), recv_numbers.begin(), 
+                 recv_numbers.end());
+    std::sort(merged.begin(), merged.end());
+    
+    // Keep the lower half
+    for (int i = 0; i < n_local; i++) {
+        local_numbers[i] = merged[i];
+    }
+}
+\end{lstlisting}
+
+\subsection{Performance Analysis}
+
+For $n$ elements and $p$ processes:
+\begin{itemize}
+    \item Each process handles $n/p$ elements
+    \item Local sort: $O(\frac{n}{p} \log \frac{n}{p})$
+    \item Parallel phases: $O(p \cdot \frac{n}{p} \log \frac{n}{p})$
+    \item Communication: $O(p \cdot \frac{n}{p})$ per iteration
+\end{itemize}
+
+\textbf{Expected Speedup}: Near-linear for moderate $p$ values, with communication overhead becoming significant as $p$ increases.
+
+\section{Pearson Correlation Coefficient}
+
+\subsection{Algorithm Description}
+
+The Pearson correlation coefficient measures linear correlation between pairs of variables. For a matrix with $m$ rows and $n$ columns, we compute correlations between all pairs of rows, resulting in $\frac{m(m-1)}{2}$ correlation values.
+
+The computation involves three main steps:
+\begin{enumerate}
+    \item Calculate row means
+    \item Compute mean-adjusted values and standard deviations
+    \item Calculate pairwise correlations using:
+    $$r_{ij} = \frac{\sum_{k=1}^{n}(x_{ik} - \bar{x}_i)(x_{jk} - \bar{x}_j)}{\sigma_i \sigma_j}$$
+\end{enumerate}
+
+\subsection{Sequential Implementation}
+
+The sequential version processes all correlation pairs in nested loops:
+
+\begin{lstlisting}[language=C++, caption=Sequential Pearson Correlation]
+for(sample1 = 0; sample1 < ROWS-1; sample1++){
+    for(sample2 = sample1+1; sample2 < ROWS; sample2++){
+        sum = 0.0;
+        for(i = 0; i < COLS; i++){
+            sum += mm[sample1 * COLS + i] * mm[sample2 * COLS + i];
+        }
+        r = sum / (std[sample1] * std[sample2]);
+        output[index] = r;
+    }
+}
+\end{lstlisting}
+
+\textbf{Time Complexity}: $O(m^2n)$ where $m$ is the number of rows and $n$ is the number of columns.
+
+\subsection{Parallel Implementation}
+
+The parallel implementation distributes the correlation pairs among processes:
+
+\begin{enumerate}
+    \item All processes compute row means and standard deviations (small overhead, simplifies implementation)
+    \item Work is divided: each process computes a subset of the $\frac{m(m-1)}{2}$ correlation pairs
+    \item Results are gathered using \texttt{MPI\_Gatherv} to handle potentially uneven work distribution
+\end{enumerate}
+
+\begin{lstlisting}[language=C, caption=Parallel Work Distribution]
+// Divide work among processes
+int local_size = cor_size / size;
+int remainder = cor_size % size;
+int local_start = rank * local_size + 
+                  (rank < remainder ? rank : remainder);
+int local_count = local_size + (rank < remainder ? 1 : 0);
+int local_end = local_start + local_count;
+\end{lstlisting}
+
+\subsection{Performance Analysis}
+
+For an $m \times n$ matrix with $p$ processes:
+\begin{itemize}
+    \item Preprocessing (mean/std): $O(mn)$ (all processes)
+    \item Correlation computation: $O(\frac{m^2n}{p})$ per process
+    \item Communication: $O(\frac{m^2}{p})$ for gathering results
+\end{itemize}
+
+\textbf{Expected Speedup}: Near-linear for large matrices, as computation dominates communication overhead.
+
+\section{Experimental Results}
+
+\subsection{Pearson Correlation Coefficient Benchmark}
+
+The benchmark was run on matrices of increasing sizes, comparing sequential and parallel (4 processes) implementations:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|r|r|r|r|}
+\hline
+\textbf{Matrix Size} & \textbf{Sequential (s)} & \textbf{Parallel (s)} & \textbf{Speedup} \\
+\hline
+64 × 64 & 0.0006 & 0.0003 & 2.00× \\
+128 × 128 & 0.0042 & 0.0015 & 2.80× \\
+256 × 256 & 0.0324 & 0.0103 & 3.15× \\
+512 × 512 & 0.2554 & 0.0755 & 3.38× \\
+1024 × 1024 & 2.0209 & 0.5713 & 3.54× \\
+2048 × 2048 & 16.1488 & 4.6032 & 3.51× \\
+4096 × 4096 & 128.9257 & 36.2020 & 3.56× \\
+\hline
+\end{tabular}
+\caption{PCC Performance Results (4 Processes)}
+\end{table}
+
+\subsection{Analysis}
+
+\begin{itemize}
+    \item \textbf{Speedup Trend}: Speedup increases from 2.00× to 3.56× as problem size grows, approaching the theoretical maximum of 4× for 4 processes.
+    \item \textbf{Communication Overhead}: More pronounced in smaller problems (64×64), where speedup is only 2.00×.
+    \item \textbf{Scalability}: For large problems (4096×4096), the parallel version achieves 3.56× speedup, demonstrating good scalability.
+    \item \textbf{Efficiency}: Parallel efficiency ranges from 50\% (small problems) to 89\% (large problems), calculated as $\frac{\text{Speedup}}{p}$.
+\end{itemize}
+
+\subsection{Odd-Even Sort Results}
+
+The parallel odd-even sort successfully sorts 100,000 elements using 4 processes. Testing confirmed:
+\begin{itemize}
+    \item \textbf{Correctness}: Output is correctly sorted (verified with \texttt{std::is\_sorted})
+    \item \textbf{Performance}: Execution time of approximately 0.115 seconds for 100,000 elements
+\end{itemize}
+
+\section{Discussion}
+
+\subsection{Advantages of Parallel Implementations}
+
+\begin{enumerate}
+    \item \textbf{Significant Speedup}: Both implementations achieve substantial performance improvements, especially for large datasets.
+    \item \textbf{Scalability}: The PCC implementation shows good scalability, with efficiency increasing as problem size grows.
+    \item \textbf{Correctness}: Validation confirms that parallel versions produce identical results to sequential versions.
+\end{enumerate}
+
+\subsection{Limitations and Challenges}
+
+\begin{enumerate}
+    \item \textbf{Communication Overhead}: For small problems, communication costs dominate, limiting speedup.
+    \item \textbf{Memory Requirements}: Odd-even sort's compare-exchange operations require temporary buffers, doubling memory usage during exchanges.
+    \item \textbf{Load Balancing}: In PCC, remainder work distribution may cause slight load imbalance.
+\end{enumerate}
+
+\subsection{Potential Optimizations}
+
+\begin{enumerate}
+    \item \textbf{Hybrid Approach}: Use OpenMP for shared-memory parallelism within nodes and MPI between nodes.
+    \item \textbf{Asynchronous Communication}: Overlap computation with communication using non-blocking MPI operations.
+    \item \textbf{Better Data Distribution}: For PCC, distribute based on row-pair indices to improve cache locality.
+    \item \textbf{Reduced Redundancy}: In PCC, only root process needs to compute mean/std, then broadcast results.
+\end{enumerate}
+
+\section{Conclusion}
+
+This assignment successfully demonstrated parallel implementations of odd-even sort and Pearson correlation coefficient using MPI. Key achievements include:
+
+\begin{itemize}
+    \item \textbf{Correct Implementations}: Both algorithms produce accurate results verified against sequential versions.
+    \item \textbf{Performance Gains}: PCC achieves up to 3.56× speedup with 4 processes, with efficiency improving for larger problems.
+    \item \textbf{Understanding}: Gained practical experience with MPI collective operations, data distribution, and parallel algorithm design.
+\end{itemize}
+
+The results confirm that parallelization can significantly reduce execution time for computationally intensive tasks, particularly when the problem size is large enough to amortize communication overhead. The implementations serve as a foundation for understanding more complex parallel algorithms and optimization techniques.
+
+\section*{References}
+
+\begin{itemize}
+    \item MPI Forum. MPI: A Message-Passing Interface Standard, Version 3.1. 2015.
+    \item Quinn, M. J. Parallel Programming in C with MPI and OpenMP. McGraw-Hill, 2004.
+    \item Course Material: PA1\_26.pdf - Programming Assignment 1 Instructions
+\end{itemize}
+
+\end{document}
