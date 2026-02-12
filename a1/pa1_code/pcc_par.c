@@ -67,6 +67,11 @@ void pearson_parallel(double *mm, double *std, double *local_output,
 	int *sample1_count = (int*)calloc(ROWS, sizeof(int));
 	int *sample1_offset = (int*)malloc(sizeof(int) * ROWS);
 	
+	if(sample1_count == NULL || sample1_offset == NULL) {
+		fprintf(stderr, "Memory allocation failed in pearson_parallel\n");
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	}
+	
 	for(sample1 = 0; sample1 < ROWS-1; sample1++){
 		int triangle_offset = 0;
 		for(int l = 0; l <= sample1+1; l++)
