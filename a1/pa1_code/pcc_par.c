@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <mpi.h>
+#include <omp.h>
 
 int COLS = 128;
 int ROWS = 128;
@@ -24,6 +25,7 @@ void calcmean(double *matrix, double *mean){
 	int i,j;
 	double sum;
 
+	#pragma omp parallel for private(j, sum)
 	for(i = 0; i < ROWS; i++){
 		sum = 0.0;
 		for(j = 0; j < COLS; j++){
@@ -40,6 +42,7 @@ void calc_mm_std(double *matrix, double *mean, double *mm, double *std){
 	int i,j;
 	double sum, diff;
 
+	#pragma omp parallel for private(j, sum, diff)
 	for(i = 0; i < ROWS; i++){
 		sum = 0.0;
 		for(j = 0; j < COLS; j++){
@@ -59,13 +62,38 @@ void pearson_parallel(double *mm, double *std, double *local_output,
                      int local_start, int local_end, int cor_size){
 	int i, sample1, sample2;
 	double sum, r;
-	int local_idx = 0;
 
+	// First pass: count how many pairs each sample1 contributes to local work
+	int *sample1_count = (int*)calloc(ROWS, sizeof(int));
+	int *sample1_offset = (int*)malloc(sizeof(int) * ROWS);
+	
 	for(sample1 = 0; sample1 < ROWS-1; sample1++){
 		int triangle_offset = 0;
 		for(int l = 0; l <= sample1+1; l++)
 			triangle_offset += l;
+		
+		for(sample2 = sample1+1; sample2 < ROWS; sample2++){
+			int global_idx = sample1 * ROWS + sample2 - triangle_offset;
+			if(global_idx >= local_start && global_idx < local_end) {
+				sample1_count[sample1]++;
+			}
+		}
+	}
+	
+	// Compute offsets for each sample1
+	sample1_offset[0] = 0;
+	for(sample1 = 1; sample1 < ROWS; sample1++){
+		sample1_offset[sample1] = sample1_offset[sample1-1] + sample1_count[sample1-1];
+	}
 
+	// Now parallelize the outer loop, each thread writes to non-overlapping regions
+	#pragma omp parallel for private(sample2, i, sum, r) schedule(dynamic)
+	for(sample1 = 0; sample1 < ROWS-1; sample1++){
+		int triangle_offset = 0;
+		for(int l = 0; l <= sample1+1; l++)
+			triangle_offset += l;
+		
+		int local_idx = sample1_offset[sample1];
 		for(sample2 = sample1+1; sample2 < ROWS; sample2++){
 			int global_idx = sample1 * ROWS + sample2 - triangle_offset;
 			
@@ -80,6 +108,9 @@ void pearson_parallel(double *mm, double *std, double *local_output,
 			}
 		}
 	}
+	
+	free(sample1_count);
+	free(sample1_offset);
 }
 
 void pearson_par(double *input, double *output, int cor_size, int rank, int size){

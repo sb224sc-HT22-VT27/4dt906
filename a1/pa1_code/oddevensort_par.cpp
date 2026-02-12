@@ -4,6 +4,7 @@
 #include <chrono>
 #include <mpi.h>
 #include <ctime>
+#include <omp.h>
 
 // Compare-exchange operation for parallel odd-even sort
 void compare_exchange_low(std::vector<int>& local_numbers, int partner, int n_local) {
