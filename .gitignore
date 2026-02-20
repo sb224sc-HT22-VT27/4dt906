@@ -45,6 +45,7 @@
 
 # Executables from assignment
 oddevensort
+oddevensort_seq
 oddevensort_par
 pcc_seq
 pcc_par
