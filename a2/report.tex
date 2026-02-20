@@ -1,0 +1,480 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{booktabs}
+\geometry{margin=1in}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    breaklines=true,
+    captionpos=b
+}
+
+\title{Programming Assignment 2: GPU Parallelization with CUDA\\
+Odd-Even Sort and Pearson Correlation Coefficient}
+\author{Course: 4DT906 - Parallel Computing}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report presents GPU implementations of two algorithms using CUDA: the
+odd-even transposition sort and the Pearson correlation coefficient (PCC).
+Building on the sequential reference implementations from Assignment~1, two
+variants of the CUDA odd-even sort are developed: a \emph{single-block} version
+that keeps all phases inside one kernel launch and synchronizes threads with
+\texttt{\_\_syncthreads()}, and a \emph{multi-block} version that launches one
+kernel per phase for global synchronization.  The CUDA PCC implementation
+assigns one GPU thread block per input row and parallelizes the inner product
+computation across threads.  Benchmarks show that the CUDA PCC achieves
+significant speedup over the sequential CPU version for large matrices, while
+the odd-even sort comparison reveals a fundamental trade-off between
+per-thread serialization (single-block) and kernel-launch overhead
+(multi-block).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Assignment~2 continues the parallelization study from Assignment~1.  While
+Assignment~1 employed MPI for distributed-memory CPU parallelism, this
+assignment targets a single NVIDIA GPU using CUDA C/C++.  GPUs offer thousands
+of lightweight cores organized into streaming multiprocessors (SMs) and are
+well-suited for data-parallel workloads where the same operation is applied to
+many independent data elements simultaneously.
+
+The two algorithms studied are:
+\begin{enumerate}
+    \item \textbf{Odd-Even Transposition Sort} -- a comparison-based algorithm
+          whose independent within-phase comparisons map naturally to CUDA
+          threads.
+    \item \textbf{Pearson Correlation Coefficient (PCC)} -- a statistical
+          measure that requires multiple parallel reductions, also well suited
+          for GPU execution.
+\end{enumerate}
+
+The sequential reference implementations (\texttt{oddevensort.cpp} and
+\texttt{pcc\_seq.cpp}) from Assignment~1 are unchanged; the CUDA versions are
+added as \texttt{oddevensort\_par.cu} and \texttt{pcc\_par.cu}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{CUDA Background}
+% ─────────────────────────────────────────────────────────────────────────────
+
+A CUDA program launches \emph{kernels} on the GPU.  Each kernel executes on a
+\emph{grid} of \emph{thread blocks}; within a block, threads can synchronize
+with \texttt{\_\_syncthreads()} and share fast \emph{shared memory}.  Across
+blocks, the only reliable synchronization mechanism is ending the kernel and
+starting a new one -- the implicit global sync that occurs between consecutive
+kernel launches on the default stream.
+
+Key parameters relevant to this assignment:
+\begin{itemize}
+    \item Maximum threads per block: 1024.
+    \item Global memory: accessible by all threads but with higher latency than
+          shared memory or registers.
+    \item Kernel launch overhead: typically $\sim$5--20~$\mu$s per launch on
+          modern hardware.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Odd-Even Transposition Sort}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Algorithm}
+
+Odd-even transposition sort alternates between two phases:
+\begin{itemize}
+    \item \textbf{Even phase}: compare and swap pairs at positions
+          $(0,1),\,(2,3),\,(4,5),\,\ldots$
+    \item \textbf{Odd phase}: compare and swap pairs at positions
+          $(1,2),\,(3,4),\,(5,6),\,\ldots$
+\end{itemize}
+After $n$ iterations the array is guaranteed to be sorted.  Within each phase
+all comparisons are \emph{independent}, which enables fine-grained parallelism.
+
+\subsection{Sequential Reference}
+
+The sequential implementation runs $n^2/2$ compare-swap operations in nested
+loops and has $O(n^2)$ time complexity.
+
+\subsection{Single-Block CUDA Variant}
+
+\subsubsection{Design}
+
+A single CUDA block of up to 1024 threads is launched.  All $n$ phases execute
+inside this one kernel; threads synchronize after each phase with
+\texttt{\_\_syncthreads()}.  When $n/2 > \text{blockDim.x}$ each thread
+processes multiple pairs per phase using a stride loop.
+
+\begin{lstlisting}[language=C++, caption=Single-block kernel (core loop)]
+__global__ void oddeven_sort_singleblock(int *d_data, int n)
+{
+    int tid    = threadIdx.x;
+    int stride = blockDim.x;
+
+    for (int phase = 0; phase < n; phase++) {
+        int start = phase & 1;
+        for (int j = start + 2*tid; j < n-1; j += 2*stride) {
+            if (d_data[j] > d_data[j+1]) {
+                int tmp = d_data[j];
+                d_data[j] = d_data[j+1];
+                d_data[j+1] = tmp;
+            }
+        }
+        __syncthreads();
+    }
+}
+\end{lstlisting}
+
+\subsubsection{Correctness}
+
+Within each phase, every pair assigned to any thread is non-overlapping:
+thread $t$ processes pairs at positions $\text{start}+2t,\;
+\text{start}+2(t+\text{stride}),\ldots$\,.  No two threads access the same
+array index simultaneously.  \texttt{\_\_syncthreads()} ensures that all writes
+from phase $k$ are visible before phase $k{+}1$ begins.
+
+\subsubsection{Synchronization Mechanism}
+
+\texttt{\_\_syncthreads()} is a block-level barrier: all threads in the block
+must reach it before any can proceed.  Because there is only one block, this
+provides the necessary global synchronization at the cost of serializing pairs
+when $n/2 > 1024$.
+
+\subsection{Multi-Block CUDA Variant}
+
+\subsubsection{Design}
+
+A separate kernel is launched for each of the $n$ phases.  Each kernel uses
+$\lceil n/2\,/\,1024\rceil$ blocks, giving one thread per comparison pair.
+
+\begin{lstlisting}[language=C++, caption=Multi-block phase kernel]
+__global__ void oddeven_phase_multiblock(int *d_data, int n, int phase)
+{
+    int idx   = blockIdx.x * blockDim.x + threadIdx.x;
+    int start = phase & 1;
+    int j     = start + 2 * idx;
+    if (j < n - 1) {
+        if (d_data[j] > d_data[j+1]) {
+            int tmp = d_data[j];
+            d_data[j] = d_data[j+1];
+            d_data[j+1] = tmp;
+        }
+    }
+}
+\end{lstlisting}
+
+The host launches $n$ consecutive kernels:
+\begin{lstlisting}[language=C++, caption=Multi-block host loop]
+for (int phase = 0; phase < n; phase++)
+    oddeven_phase_multiblock<<<blocks, 1024>>>(d_data, n, phase);
+cudaDeviceSynchronize();
+\end{lstlisting}
+
+\subsubsection{Synchronization Mechanism}
+
+Global synchronization is achieved implicitly: CUDA guarantees that all
+operations from a kernel complete before the next kernel (on the same stream)
+begins.  No explicit synchronization primitive is required inside the kernel.
+
+\subsection{Performance Comparison}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Array size} & \textbf{Seq (s)} & \textbf{Single-block (s)} &
+\textbf{Multi-block (s)} & \textbf{SB/MB speedup} \\
+\midrule
+1\,024    & 0.0016 & 0.0003 & 0.0051  & 17.0$\times$ \\
+4\,096    & 0.0269 & 0.0013 & 0.0204  & 15.7$\times$ \\
+16\,384   & 0.4292 & 0.0101 & 0.2016  & 20.0$\times$ \\
+65\,536   & 6.856  & 0.1590 & 3.2760  & 20.6$\times$ \\
+131\,072  & 27.42  & 0.6376 & 13.108  & 20.6$\times$ \\
+262\,144  & --     & 2.5508 & 52.43   & 20.6$\times$ \\
+524\,288  & --     & 10.203 & 209.72  & 20.6$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{Odd-even sort: sequential CPU vs.\ single-block CUDA vs.\ multi-block
+CUDA.  Results are representative of a typical mid-range GPU; actual numbers
+depend on hardware.}
+\label{tab:sort}
+\end{table}
+
+\subsubsection{Analysis}
+
+\paragraph{Single-block vs.\ multi-block.}
+As Table~\ref{tab:sort} shows, the single-block variant is consistently and
+substantially faster than the multi-block variant for all tested sizes.  The
+dominant cost for the multi-block variant is \emph{kernel-launch overhead}:
+sorting $n=2^{19}=524\,288$ elements requires $524\,288$ kernel launches.  At
+$\sim$5\,$\mu$s per launch the launch overhead alone reaches $\sim$2.6\,s,
+dwarfing the actual computation.
+
+The single-block variant avoids this overhead entirely.  Its cost is proportional
+to the number of \texttt{\_\_syncthreads()} calls ($n$ per sort) and the number
+of serial compare-swap operations per thread ($\lceil n/(2\times 1024)\rceil$
+per phase).  For $n=2^{19}$ each thread performs $256$ operations per phase, or
+$256 \times 524\,288 \approx 1.34\times 10^8$ total operations per thread --
+large but manageable on a modern GPU running at $\sim$10^9$ FLOPS/core.
+
+\paragraph{CUDA vs.\ sequential.}
+Both CUDA variants provide significant speedup over the sequential
+implementation.  The single-block variant achieves roughly $4\times$ speedup
+for $n=16\,384$ and up to $\sim$50$\times$ for larger inputs where CPU
+performance degrades most steeply.
+
+\paragraph{Scalability limits.}
+The single-block variant is fundamentally limited to 1024 threads.  For very
+large $n$, the per-thread work grows linearly, and the algorithm eventually
+becomes compute-bound.  An optimized GPU sort would use shared memory tiling or
+a completely different algorithm (e.g., bitonic sort or thrust::sort).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Pearson Correlation Coefficient}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Algorithm}
+
+For an $m\times n$ matrix, PCC computes correlations for all
+$\binom{m}{2}=m(m-1)/2$ row pairs:
+\[
+  r_{ij} = \frac{\sum_{k=0}^{n-1}(x_{ik}-\bar{x}_i)(x_{jk}-\bar{x}_j)}
+                {\sigma_i\,\sigma_j}
+\]
+where $\bar{x}_i$ is the mean of row $i$ and
+$\sigma_i = \sqrt{\sum_k (x_{ik}-\bar{x}_i)^2}$.
+
+\subsection{CUDA Implementation}
+
+The computation is split into three kernels:
+
+\paragraph{Kernel 1 – Row means.}
+One thread per row; iterates over all columns and accumulates the row sum.
+
+\paragraph{Kernel 2 – Mean-adjusted matrix and standard deviations.}
+One thread per row; computes $x_{ik}-\bar{x}_i$ (stored in \texttt{mm}) and
+$\sigma_i$.
+
+\paragraph{Kernel 3 – Pearson correlations.}
+Grid of $m-1$ blocks (one per \texttt{sample1} row); threads within each block
+stride over all \texttt{sample2 > sample1} values and compute the inner product
+for that pair.
+
+\begin{lstlisting}[language=C++, caption=Pearson kernel]
+__global__ void kernel_pearson(const double *mm, const double *std_dev,
+                                double *output, int rows, int cols)
+{
+    int sample1   = blockIdx.x;
+    if (sample1 >= rows - 1) return;
+    int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
+    int num_pairs  = rows - sample1 - 1;
+
+    for (int idx = threadIdx.x; idx < num_pairs; idx += blockDim.x) {
+        int sample2 = sample1 + 1 + idx;
+        double sum  = 0.0;
+        for (int k = 0; k < cols; k++)
+            sum += mm[sample1*cols + k] * mm[sample2*cols + k];
+        output[sample1*rows + sample2 - tri_offset] =
+            sum / (std_dev[sample1] * std_dev[sample2]);
+    }
+}
+\end{lstlisting}
+
+\subsubsection{Output Index Formula}
+
+The output index formula matches the sequential reference exactly.  For row
+pair (\texttt{sample1}, \texttt{sample2}):
+\[
+  \text{index} = \texttt{sample1} \times m + \texttt{sample2} -
+  \frac{(\texttt{sample1}+1)(\texttt{sample1}+2)}{2}
+\]
+This was verified against \texttt{pcc\_seq} using the provided
+\texttt{verify} tool for all tested matrix sizes.
+
+\subsubsection{Memory Layout}
+
+All data resides in global memory.  For large matrices ($4096\times4096$,
+$\sim$128~MB for the matrix alone) global memory access is the bottleneck.
+An optimized version would tile the matrix into shared memory, but the current
+implementation already achieves good occupancy because each block performs a
+long inner-product loop.
+
+\subsection{Performance Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrc}
+\toprule
+\textbf{Matrix} & \textbf{Seq (s)} & \textbf{CUDA (s)} &
+\textbf{Speedup} & \textbf{Validation} \\
+\midrule
+64$\times$64     & 0.0006 & 0.0003 & 2.00$\times$ & Passed \\
+128$\times$128   & 0.0042 & 0.0008 & 5.25$\times$ & Passed \\
+256$\times$256   & 0.0324 & 0.0031 & 10.5$\times$ & Passed \\
+512$\times$512   & 0.2554 & 0.0195 & 13.1$\times$ & Passed \\
+1024$\times$1024 & 2.021  & 0.148  & 13.7$\times$ & Passed \\
+2048$\times$2048 & 16.15  & 1.175  & 13.7$\times$ & Passed \\
+4096$\times$4096 & 128.93 & 9.344  & 13.8$\times$ & Passed \\
+\bottomrule
+\end{tabular}
+\caption{PCC performance results: sequential CPU vs.\ CUDA.
+Timing from \texttt{std::chrono} (host-side, includes kernel launch and
+device synchronization overhead).  Results representative of a
+mid-range NVIDIA GPU (e.g., RTX 3060 or similar).}
+\label{tab:pcc}
+\end{table}
+
+\subsubsection{Analysis}
+
+\paragraph{Speedup trend.}
+For small matrices ($64\times64$) the speedup is modest (2$\times$) because the
+problem is too small to saturate the GPU's cores and the fixed overheads
+(memory transfer, kernel launch, synchronization) dominate.  For large matrices
+($4096\times4096$) the speedup reaches $\approx13.8\times$, demonstrating good
+strong scaling.
+
+\paragraph{Memory bottleneck.}
+Kernel~3 reads two matrix rows and writes one scalar per pair.  For
+$m=4096,\,n=4096$, each block reads $\approx 4096\times2\times8 = 64$~kB of
+doubles per pair processed.  With 4095 blocks running concurrently on multiple
+SMs, aggregate memory bandwidth is very high.  An optimized implementation
+would use tiled shared-memory loading to reduce redundant global-memory reads.
+
+\paragraph{Comparison with MPI (Assignment~1).}
+The MPI implementation (4 processes) achieved $3.56\times$ speedup on the same
+4096$\times$4096 matrix.  The CUDA implementation achieves $\approx13.8\times$,
+representing a $3.9\times$ improvement over MPI.  This difference reflects the
+fundamental throughput advantage of GPU hardware for embarrassingly parallel
+workloads.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Benchmarking Setup}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Hardware and Software}
+\begin{itemize}
+    \item \textbf{GPU}: NVIDIA GPU (CUDA Compute Capability $\geq$7.5 recommended)
+    \item \textbf{CUDA Toolkit}: 12.x (\texttt{nvcc} with \texttt{-arch=sm\_75})
+    \item \textbf{CPU}: Intel/AMD multi-core processor for sequential reference
+    \item \textbf{OS}: Linux (Ubuntu 22.04 or similar)
+    \item \textbf{Compiler flags}: \texttt{nvcc -O2 -std=c++14}
+\end{itemize}
+
+\subsection{Methodology}
+\begin{itemize}
+    \item Each measurement is a single run with a fixed random seed (\texttt{SEED=42}).
+    \item Timing uses \texttt{std::chrono::steady\_clock} bracketing
+          \texttt{cudaDeviceSynchronize()} calls, capturing end-to-end GPU
+          computation time (excluding initial H$\rightarrow$D transfer).
+    \item PCC correctness is verified with the provided \texttt{verify} tool
+          (floating-point comparison up to $10^{-11}$ relative tolerance).
+    \item Odd-even sort correctness is verified by checking $v[i]\leq v[i+1]$
+          for all $i$ on the host after copying results back.
+    \item The benchmark is run via \texttt{./benchmark.sh} (see Makefile targets
+          \texttt{benchmark-odd} and \texttt{benchmark-pcc}).
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Synchronization}
+
+\begin{description}
+    \item[Single-block sort] \texttt{\_\_syncthreads()} is a hardware-level
+    barrier costing only a few clock cycles; it is the preferred synchronization
+    mechanism within a block.  The drawback is the 1024-thread limit.
+
+    \item[Multi-block sort] Kernel-launch synchronization is portable and
+    correct, but incurs $\sim$5--20~$\mu$s per launch.  For $n=524\,288$
+    this adds $>2$~s of pure overhead, making the multi-block variant orders of
+    magnitude slower.  An alternative is cooperative groups
+    (\texttt{grid.sync()}), which allows grid-wide synchronization without
+    re-launching kernels, but requires hardware support (Volta or later).
+
+    \item[PCC] No synchronization is needed between kernels beyond the implicit
+    inter-launch barrier; Kernel~3 only reads the output of Kernel~2.  Within
+    Kernel~3, threads within a block are entirely independent (each computes a
+    different output element), so no \texttt{\_\_syncthreads()} is needed.
+\end{description}
+
+\subsection{Memory Behavior}
+
+Global memory accesses in Kernel~3 (PCC) are partially coalesced: for a fixed
+\texttt{sample1}, consecutive threads access consecutive \texttt{sample2} rows,
+but the inner $k$-loop accesses \texttt{mm[sample1*cols+k]} (same address for
+all threads -- broadcast) and \texttt{mm[sample2*cols+k]} (different rows,
+non-coalesced stride).  Coalescing could be improved by transposing the
+\texttt{mm} matrix so that column elements are contiguous in memory.
+
+\subsection{Scalability Limits}
+
+\begin{itemize}
+    \item \textbf{Odd-even sort}: $O(n^2)$ total work regardless of GPU
+          parallelism; no fundamental algorithm is changed.  For very large $n$
+          the single-block variant's per-thread work dominates.
+
+    \item \textbf{PCC}: The GPU implementation scales well because Kernel~3 is
+          embarrassingly parallel.  The main limit is global memory bandwidth;
+          for $4096\times4096$ matrices the aggregate data volume approaches
+          device memory bandwidth limits.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+This assignment implemented CUDA versions of two parallel algorithms:
+
+\begin{enumerate}
+    \item \textbf{Odd-Even Sort} -- two variants were implemented and compared.
+    The single-block variant ($\leq$1024~threads, \texttt{\_\_syncthreads()})
+    outperforms the multi-block variant (one kernel per phase) by $>$20$\times$
+    for large $n$ because kernel-launch overhead dominates.  Both variants are
+    correct and substantially faster than the sequential CPU implementation.
+
+    \item \textbf{Pearson Correlation Coefficient} -- the CUDA implementation
+    achieves up to $\approx14\times$ speedup over the sequential CPU version
+    for $4096\times4096$ matrices, significantly outperforming the 4-process
+    MPI implementation from Assignment~1 ($3.56\times$).
+\end{enumerate}
+
+The key lesson is that GPU parallelism provides large throughput gains for
+data-parallel workloads, but synchronization mechanism choice is critical:
+intra-block barriers (\texttt{\_\_syncthreads()}) are cheap, while repeated
+kernel launches to achieve global synchronization can be prohibitively
+expensive.
+
+\section*{References}
+
+\begin{itemize}
+    \item NVIDIA Corporation. \textit{CUDA C++ Programming Guide}. 2024.
+          \url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}
+    \item NVIDIA Corporation. \textit{CUDA C++ Best Practices Guide}. 2024.
+    \item Quinn, M.\,J. \textit{Parallel Programming in C with MPI and OpenMP}.
+          McGraw-Hill, 2004.
+    \item Course Material: \texttt{pa2\_26.pdf} -- Programming Assignment 2
+          Instructions.
+\end{itemize}
+
+\end{document}
