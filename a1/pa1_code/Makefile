@@ -5,7 +5,7 @@ CXX	= g++
 CCP = mpicc
 CXXP = mpic++
 
-all: oddevensort pcc_seq verify
+all: oddevensort pcc_seq oddevensort_par pcc_par verify
 
 # --- Sequential (given) ---
 oddevensort: oddevensort.cpp
