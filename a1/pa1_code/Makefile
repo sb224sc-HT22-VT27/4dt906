@@ -2,26 +2,28 @@
 
 CC	= gcc
 CXX	= g++
+CFLAGS   = -O2
+CXXFLAGS = -O2 -std=c++17
 
 all: oddevensort pcc_seq oddevensort_par pcc_par verify
 
 # --- Sequential (given) ---
 oddevensort: oddevensort.cpp
-	$(CXX) oddevensort.cpp -std=c++17 -o oddevensort
+	$(CXX) $(CXXFLAGS) oddevensort.cpp -o oddevensort
 
 pcc_seq: pcc_seq.cpp
-	$(CXX) pcc_seq.cpp -lm -std=c++17 -o pcc_seq
+	$(CXX) $(CXXFLAGS) pcc_seq.cpp -lm -o pcc_seq
 
 # --- Parallel (C++ standard library threads) ---
 oddevensort_par: oddevensort_par.cpp
-	$(CXX) oddevensort_par.cpp -std=c++17 -pthread -o oddevensort_par
+	$(CXX) $(CXXFLAGS) oddevensort_par.cpp -pthread -o oddevensort_par
 
 pcc_par: pcc_par.cpp
-	$(CXX) pcc_par.cpp -lm -std=c++17 -pthread -o pcc_par
+	$(CXX) $(CXXFLAGS) pcc_par.cpp -lm -pthread -o pcc_par
 
 # PCC output verifier (floating-point comparison)
 verify: verify.c
-	$(CC) verify.c -lm -std=c99 -o verify -DQUIET
+	$(CC) $(CFLAGS) verify.c -lm -std=c99 -o verify -DQUIET
 
 # Run benchmark: validate correctness and report speedup (seq vs par)
 benchmark-pcc: pcc_seq pcc_par verify

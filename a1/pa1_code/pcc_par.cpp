@@ -51,12 +51,14 @@ void calc_mm_std_thread(double *matrix, double *mean, double *mm, double *std_de
 }
 
 /**
- * Calculate Pearson correlations for sample1 rows in [row_start, row_end).
+ * Calculate Pearson correlations for sample1 rows assigned to this thread.
+ * Uses interleaved (strided) row assignment so that heavy rows (many pairs)
+ * are spread evenly across threads, avoiding load imbalance.
  * Each thread writes to non-overlapping output indices, so no data races.
  */
 void pearson_thread(double *mm, double *std_dev, double *output,
-                    int row_start, int row_end){
-	for (int sample1 = row_start; sample1 < row_end; sample1++){
+                    int thread_id, int num_threads){
+	for (int sample1 = thread_id; sample1 < ROWS - 1; sample1 += num_threads){
 		int summ = 0;
 		for (int l = 0; l <= sample1 + 1; l++)
 			summ += l;
@@ -86,7 +88,7 @@ void pearson_par(double *input, double *output, int num_threads){
 		std::exit(1);
 	}
 
-	// Helper: split [0, total) evenly among num_threads
+	// Helper: split [0, total) evenly among num_threads (used for linear steps)
 	auto make_threads = [&](int total, auto fn) {
 		std::vector<std::thread> threads;
 		int per = total / num_threads;
@@ -111,10 +113,15 @@ void pearson_par(double *input, double *output, int num_threads){
 		calc_mm_std_thread(input, mean, minusmean, std_dev, s, e);
 	});
 
-	// Step 3: compute correlation pairs in parallel (divide over sample1 rows)
-	make_threads(ROWS - 1, [&](int s, int e){
-		pearson_thread(minusmean, std_dev, output, s, e);
-	});
+	// Step 3: compute correlation pairs in parallel.
+	// Interleaved assignment ensures balanced work: row 0 (ROWS-1 pairs) and
+	// row ROWS-2 (1 pair) go to the same thread, keeping loads equal.
+	{
+		std::vector<std::thread> threads;
+		for (int t = 0; t < num_threads; t++)
+			threads.emplace_back(pearson_thread, minusmean, std_dev, output, t, num_threads);
+		for (auto& th : threads) th.join();
+	}
 
 	free(mean);
 	free(minusmean);

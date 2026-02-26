@@ -3,40 +3,46 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
+#include <atomic>
 
-// Reusable barrier for C++17 (std::barrier is C++20)
+// Fast reusable barrier using atomic spin-wait (avoids OS scheduler overhead
+// of condition_variable for the many short phases in odd-even sort).
 class Barrier {
-    unsigned int count;
-    unsigned int waiting;
-    unsigned int generation;
-    std::mutex mtx;
-    std::condition_variable cv;
+    int total;
+    std::atomic<int> count;
+    std::atomic<int> generation;
 public:
-    explicit Barrier(unsigned int n) : count(n), waiting(0), generation(0) {}
+    explicit Barrier(int n) : total(n), count(n), generation(0) {}
 
     void arrive_and_wait() {
-        std::unique_lock<std::mutex> lock(mtx);
-        unsigned int gen = generation;
-        if (++waiting == count) {
-            generation++;
-            waiting = 0;
-            cv.notify_all();
+        int gen = generation.load(std::memory_order_acquire);
+        if (count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            count.store(total, std::memory_order_release);
+            generation.fetch_add(1, std::memory_order_release);
         } else {
-            cv.wait(lock, [this, gen] { return gen != generation; });
+            while (generation.load(std::memory_order_acquire) == gen)
+                std::this_thread::yield();
         }
     }
 };
 
-// Each thread handles every num_threads-th compare-swap pair in each phase.
-// Pairs processed by different threads are disjoint, so no data races occur.
+// Each thread handles a contiguous block of compare-swap pairs per phase.
+// Contiguous access avoids false sharing between threads on the same cache lines.
 void oddeven_sort_thread(std::vector<int>& numbers, int thread_id, int num_threads,
                           int n, Barrier& barrier)
 {
     for (int phase = 1; phase <= n; phase++) {
         int start = phase % 2;
-        for (int j = start + thread_id * 2; j < n - 1; j += num_threads * 2) {
+        // Number of compare-swap pairs active in this phase.
+        // Valid j: start, start+2, ..., last j < n-1  →  count = (n - start) / 2
+        int num_pairs = (n - start) / 2;
+        // Divide pairs into contiguous blocks, one per thread
+        int per = num_pairs / num_threads;
+        int rem = num_pairs % num_threads;
+        int pair_start = thread_id * per + (thread_id < rem ? thread_id : rem);
+        int pair_end   = pair_start + per + (thread_id < rem ? 1 : 0);
+        for (int k = pair_start; k < pair_end; k++) {
+            int j = start + 2 * k;
             if (numbers[j] > numbers[j + 1]) {
                 std::swap(numbers[j], numbers[j + 1]);
             }
