@@ -47,9 +47,12 @@
 oddevensort
 oddevensort_seq
 oddevensort_par
+oddevensort_par_mp
 pcc_seq
 pcc_par
+pcc_par_mp
 verify
+
 
 # LaTeX auxiliary files
 *.aux
