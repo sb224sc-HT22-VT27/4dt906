@@ -7,7 +7,7 @@ CXXP 		= mpic++
 CFLAGS 		= -O2
 CXXFLAGS 	= -O2 -std=c++17
 
-all: oddevensort pcc_seq oddevensort_par pcc_par verify
+all: oddevensort pcc_seq oddevensort_par oddevensort_par_mp pcc_par pcc_par_mp verify
 
 # --- Sequential (given) ---
 oddevensort: oddevensort.cpp
