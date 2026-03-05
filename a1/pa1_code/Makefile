@@ -12,12 +12,12 @@ TARGETS = oddevensort pcc_seq oddevensort_par pcc_par verify
 
 # Add MPI targets only if detected
 ifeq ($(HAS_MPI),yes)
-    $(info MPI detected, enabling MPI targets.)
+    $(info MPI detected.)
     CCP         = mpicc
     CXXP        = mpic++
     TARGETS    += oddevensort_par_mp pcc_par_mp
 else
-    $(info MPI not found. MPI targets will be skipped.)
+    $(info MPI not found.)
 endif
 
 all: $(TARGETS)
@@ -44,8 +44,16 @@ verify: verify.c
 benchmark-pcc: pcc_seq pcc_par verify
 	./benchmark.sh ./pcc_seq ./pcc_par ./verify
 
+oddeven-test: oddevensort oddevensort_par
+	@echo "Running benchmarks..."
+	@echo "--- Sequential Output ---"; \
+	 T1=$$(./oddevensort | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	 echo "\n--- Parallel Output ---"; \
+	 T2=$$(./oddevensort_par | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	 echo "\nSpeedup: $$(echo "scale=2; $$T1 / $$T2" | bc)x"
 
-# MPI
+
+# OpenMPI for *_mp files
 ifeq ($(HAS_MPI),yes)
 oddevensort_par_mp: oddevensort_par_mp.cpp
 	$(CXXP) $(CXXFLAGS) oddevensort_par_mp.cpp -o oddevensort_par_mp
@@ -55,6 +63,16 @@ pcc_par_mp:  pcc_par_mp.c
 
 benchmark-pcc-mp: pcc_seq pcc_par verify
 	./benchmark.sh ./pcc_seq ./pcc_par_mp ./verify
+
+oddeven-test-mp: oddevensort oddevensort_par_mp
+	@echo "Running benchmarks..."
+	@echo "--- Sequential Output ---"; \
+	 T1_RAW=$$(./oddevensort | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	 T1=$$(printf "%.6f" $$T1_RAW); \
+	 echo "\n--- Parallel Output ---"; \
+	 T2_RAW=$$(./oddevensort_par_mp | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	 T2=$$(printf "%.6f" $$T2_RAW); \
+	 echo "\nSpeedup: $$(echo "scale=2; $$T1 / $$T2" | bc)x"
 endif
 
 clean:
