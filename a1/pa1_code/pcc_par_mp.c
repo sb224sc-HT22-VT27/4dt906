@@ -52,32 +52,26 @@ void calc_mm_std(double *matrix, double *mean, double *mm, double *std){
 }
 
 /**
- * Parallel Pearson correlation calculation
- * Each process computes a subset of the correlation pairs
+ * Compute Pearson correlations for sample1 rows assigned to this process.
+ * Uses interleaved (strided) row assignment so that heavy rows (many pairs)
+ * are spread evenly across processes, avoiding load imbalance.
+ * Process with given rank handles sample1 = rank, rank+size, rank+2*size, ...
+ * Each process writes directly to the correct positions in output.
  */
-void pearson_parallel(double *mm, double *std, double *local_output, 
-                     int local_start, int local_end, int cor_size){
+void pearson_parallel(double *mm, double *std, double *output,
+                      int rank, int size){
 	int i, sample1, sample2;
-	double sum, r;
-	int local_idx = 0;
+	double sum;
 
-	for(sample1 = 0; sample1 < ROWS-1; sample1++){
-		int triangle_offset = 0;
-		for(int l = 0; l <= sample1+1; l++)
-			triangle_offset += l;
-
+	for(sample1 = rank; sample1 < ROWS-1; sample1 += size){
+		int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
 		for(sample2 = sample1+1; sample2 < ROWS; sample2++){
-			int global_idx = sample1 * ROWS + sample2 - triangle_offset;
-			
-			// Only compute if this index is in our local range
-			if(global_idx >= local_start && global_idx < local_end) {
-				sum = 0.0;
-				for(i = 0; i < COLS; i++){
-					sum += mm[sample1 * COLS + i] * mm[sample2 * COLS + i];
-				}
-				r = sum / (std[sample1] * std[sample2]);
-				local_output[local_idx++] = r;
+			sum = 0.0;
+			for(i = 0; i < COLS; i++){
+				sum += mm[sample1 * COLS + i] * mm[sample2 * COLS + i];
 			}
+			output[sample1 * ROWS + sample2 - tri_offset] =
+				sum / (std[sample1] * std[sample2]);
 		}
 	}
 }
@@ -101,54 +95,23 @@ void pearson_par(double *input, double *output, int cor_size, int rank, int size
     calcmean(input, mean);
 	calc_mm_std(input, mean, minusmean, std);
 	
-	// Divide work among processes
-	int local_size = cor_size / size;
-	int remainder = cor_size % size;
-	int local_start = rank * local_size + (rank < remainder ? rank : remainder);
-	int local_count = local_size + (rank < remainder ? 1 : 0);
-	int local_end = local_start + local_count;
-	
-	// Allocate local output
-	double *local_output = (double*)malloc(sizeof(double) * local_count);
+	// Each process writes its interleaved rows into a zeroed local buffer
+	double *local_output = (double*)calloc(cor_size, sizeof(double));
 	if(local_output == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
 		MPI_Abort(MPI_COMM_WORLD, 1);
 	}
 	
-	// Compute local portion of correlations
-	pearson_parallel(minusmean, std, local_output, local_start, local_end, cor_size);
+	// Compute correlations for this process's interleaved rows
+	pearson_parallel(minusmean, std, local_output, rank, size);
 	
-	// Gather results at root
-	// First, gather counts and displacements
-	int *recvcounts = NULL;
-	int *displs = NULL;
-	if(rank == 0) {
-		recvcounts = (int*)malloc(sizeof(int) * size);
-		displs = (int*)malloc(sizeof(int) * size);
-	}
-	
-	MPI_Gather(&local_count, 1, MPI_INT, recvcounts, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	
-	if(rank == 0) {
-		displs[0] = 0;
-		for(int i = 1; i < size; i++) {
-			displs[i] = displs[i-1] + recvcounts[i-1];
-		}
-	}
-	
-	// Gather the actual correlation values
-	MPI_Gatherv(local_output, local_count, MPI_DOUBLE,
-	           output, recvcounts, displs, MPI_DOUBLE,
-	           0, MPI_COMM_WORLD);
+	// Reduce all local buffers to root; non-computed entries are 0 so sum is correct
+	MPI_Reduce(local_output, output, cor_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
     free(mean);
     free(minusmean);
     free(std);
     free(local_output);
-    if(rank == 0) {
-    	free(recvcounts);
-    	free(displs);
-    }
 }
 
 void writeoutput(double *output, int cor_size, char *name)
