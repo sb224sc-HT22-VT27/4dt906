@@ -25,6 +25,7 @@ void generatematrix(double *matrix, unsigned long seed){
  * Calculate row mean for a range of rows [row_start, row_end).
  */
 void calcmean_thread(double *matrix, double *mean, int row_start, int row_end){
+	// * Modification from seq: Dependency on row_start and end
 	for (int i = row_start; i < row_end; i++){
 		double sum = 0.0;
 		for (int j = 0; j < COLS; j++){
@@ -40,6 +41,7 @@ void calcmean_thread(double *matrix, double *mean, int row_start, int row_end){
 void calc_mm_std_thread(double *matrix, double *mean, double *mm, double *std_dev,
                         int row_start, int row_end){
 	for (int i = row_start; i < row_end; i++){
+		// * Modification from seq: Dependency on row_start and end
 		double sum = 0.0;
 		for (int j = 0; j < COLS; j++){
 			double diff = matrix[i * COLS + j] - mean[i];
@@ -59,6 +61,7 @@ void calc_mm_std_thread(double *matrix, double *mean, double *mm, double *std_de
 void pearson_thread(double *mm, double *std_dev, double *output,
                     int thread_id, int num_threads){
 	for (int sample1 = thread_id; sample1 < ROWS - 1; sample1 += num_threads){
+		// * Modification from seq: Made loop dependent on num_threads and thread_id to make num_thread hops for each id, for data distrubution.
 		int summ = 0;
 		for (int l = 0; l <= sample1 + 1; l++)
 			summ += l;
@@ -74,7 +77,6 @@ void pearson_thread(double *mm, double *std_dev, double *output,
 }
 
 void pearson_par(double *input, double *output, int num_threads){
-
 	double *mean    = (double*)malloc(sizeof(double) * ROWS);
 	double *std_dev = (double*)malloc(sizeof(double) * ROWS);
 
@@ -88,7 +90,7 @@ void pearson_par(double *input, double *output, int num_threads){
 		std::exit(1);
 	}
 
-	// Helper: split [0, total) evenly among num_threads (used for linear steps)
+	// * Modification from seq: Helper: split [0, total) evenly among num_threads (used for linear steps)
 	auto make_threads = [&](int total, auto fn) {
 		std::vector<std::thread> threads;
 		int per = total / num_threads;
@@ -103,19 +105,20 @@ void pearson_par(double *input, double *output, int num_threads){
 		for (auto& th : threads) th.join();
 	};
 
-	// Step 1: compute row means in parallel
+	// Step 1 and 2: Centers and Normalizes.
+	// * Modification from seq: Step 1: compute row means in parallel, based on row start and end
 	make_threads(ROWS, [&](int s, int e){
 		calcmean_thread(input, mean, s, e);
 	});
 
-	// Step 2: compute (matrix - mean) and std in parallel
+	// * Modification from seq: Step 2: compute (matrix - mean) and std in parallel, based on row start and end
 	make_threads(ROWS, [&](int s, int e){
 		calc_mm_std_thread(input, mean, minusmean, std_dev, s, e);
 	});
 
-	// Step 3: compute correlation pairs in parallel.
-	// Interleaved assignment ensures balanced work: row 0 (ROWS-1 pairs) and
-	// row ROWS-2 (1 pair) go to the same thread, keeping loads equal.
+	// * Modification from seq: Step 3: compute correlation pairs in parallel.
+	// * Interleaved assignment ensures balanced work: Round-Robin by giving th0
+	// * row 0 and rows in intervals of num_threads
 	{
 		std::vector<std::thread> threads;
 		for (int t = 0; t < num_threads; t++)
@@ -152,6 +155,7 @@ int main(int argc, char **argv){
 	unsigned long seed = 12345;
 	if (argc >= 4) { seed = (unsigned long)atol(argv[3]); }
 
+	// * Modification from seq: Check hardware for num_threads or assume 4 if non-readable.
 	int num_threads = static_cast<int>(std::thread::hardware_concurrency());
 	if (num_threads == 0) num_threads = 4;
 
@@ -176,7 +180,7 @@ int main(int argc, char **argv){
 
 	/* Chrono timer (same style as oddevensort) */
 	auto start = std::chrono::steady_clock::now();
-	pearson_par(matrix, output, num_threads);
+	pearson_par(matrix, output, num_threads); // * Modification from seq: num_threads instead of cor_size
 	auto end = std::chrono::steady_clock::now();
 	std::cout << "Elapsed time =  " << std::fixed << std::setprecision(4) << std::chrono::duration<double>(end - start).count() << " sec\n";
 
