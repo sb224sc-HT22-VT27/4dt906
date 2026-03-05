@@ -58,7 +58,7 @@ void print_sort_status(std::vector<int> numbers)
 
 int main()
 {
-    constexpr unsigned int size = 100000; // Number of elements in the input
+    constexpr unsigned int size = 1 << 19; // Number of elements in the input
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
     if (num_threads == 0) num_threads = 4;
 

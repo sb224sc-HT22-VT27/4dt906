@@ -24,7 +24,7 @@ void print_sort_status(std::vector<int> numbers)
 
 int main()
 {
-    constexpr unsigned int size = 100000; // Number of elements in the input
+    constexpr unsigned int size = 1 << 19; // Number of elements in the input
 
     // Initialize a vector with integers of value 0
     std::vector<int> numbers(size);
