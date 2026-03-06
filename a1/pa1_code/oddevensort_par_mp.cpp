@@ -89,7 +89,15 @@ int main(int argc, char** argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     
-    constexpr unsigned int total_size = 100000; // Total number of elements
+    unsigned int total_size = 100000;
+    if (argc > 1) {
+        try {
+            total_size = static_cast<unsigned int>(std::stoul(argv[1]));
+        } catch (...) {
+            if (rank == 0)
+                std::cerr << "Invalid size argument. Using default: " << total_size << "\n";
+        }
+    }
     int n_local = total_size / size;
     
     std::vector<int> numbers;
@@ -101,6 +109,7 @@ int main(int argc, char** argv)
         srand(time(0));
         std::generate(numbers.begin(), numbers.end(), rand);
         
+        std::cout << "Size: " << total_size << "\n";
         print_sort_status(numbers);
     }
     

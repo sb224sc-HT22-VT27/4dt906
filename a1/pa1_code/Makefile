@@ -45,12 +45,14 @@ benchmark-pcc: pcc_seq pcc_par verify
 	./benchmark.sh ./pcc_seq ./pcc_par ./verify
 
 oddeven-test: oddevensort oddevensort_par
-	@echo "Running benchmarks..."
-	@echo "--- Sequential Output ---"; \
-	 T1=$$(./oddevensort | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
-	 echo "\n--- Parallel Output ---"; \
-	 T2=$$(./oddevensort_par | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
-	 echo "\nSpeedup: $$(echo "scale=2; $$T1 / $$T2" | bc)x"
+	@for N in 100000 524288; do \
+	  echo "=== Size: $$N ==="; \
+	  echo "--- Sequential Output ---"; \
+	  T1=$$(./oddevensort $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	  echo "--- Parallel Output ---"; \
+	  T2=$$(./oddevensort_par $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	  echo "Speedup (size=$$N): $$(echo "scale=2; $$T1 / $$T2" | bc)x"; \
+	done
 
 
 # OpenMPI for *_mp files
@@ -65,14 +67,14 @@ benchmark-pcc-mp: pcc_seq pcc_par verify
 	./benchmark.sh ./pcc_seq ./pcc_par_mp ./verify
 
 oddeven-test-mp: oddevensort oddevensort_par_mp
-	@echo "Running benchmarks..."
-	@echo "--- Sequential Output ---"; \
-	 T1_RAW=$$(./oddevensort | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
-	 T1=$$(printf "%.6f" $$T1_RAW); \
-	 echo "\n--- Parallel Output ---"; \
-	 T2_RAW=$$(./oddevensort_par_mp | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
-	 T2=$$(printf "%.6f" $$T2_RAW); \
-	 echo "\nSpeedup: $$(echo "scale=2; $$T1 / $$T2" | bc)x"
+	@for N in 100000 524288; do \
+	  echo "=== Size: $$N ==="; \
+	  echo "--- Sequential Output ---"; \
+	  T1=$$(./oddevensort $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	  echo "--- Parallel MPI Output ---"; \
+	  T2=$$(mpirun ./oddevensort_par_mp $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$4}'); \
+	  echo "Speedup (size=$$N): $$(echo "scale=2; $$T1 / $$T2" | bc)x"; \
+	done
 endif
 
 clean:
