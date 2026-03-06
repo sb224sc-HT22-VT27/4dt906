@@ -21,9 +21,9 @@
     captionpos=b
 }
 
-\title{Programming Assignment 1: Parallel Computing\\
-Odd-Even Sort and Pearson Correlation Coefficient}
-\author{Course: 4DT906 - Parallel Computing}
+\title{4DT906 Assignment 1: Parallel Computing\\
+Odd-Even Sort and Pearson Correlation Coefficient C/C++}
+\author{Samuel Berg, Jesper Wingren, Emil Ulvagården}
 \date{\today}
 
 \begin{document}
@@ -97,22 +97,22 @@ The key operations are \texttt{compare\_exchange\_low} and \texttt{compare\_exch
 \end{itemize}
 
 \begin{lstlisting}[language=C++, caption=Parallel Compare-Exchange Operation]
-void compare_exchange_low(std::vector<int>& local_numbers, 
+void compare_exchange_low(std::vector<int>& local_numbers,
                          int partner, int n_local) {
     std::vector<int> recv_numbers(n_local);
-    
+
     MPI_Sendrecv(local_numbers.data(), n_local, MPI_INT, partner, 0,
                 recv_numbers.data(), n_local, MPI_INT, partner, 0,
                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    
+
     // Merge and keep the smaller n_local elements
     std::vector<int> merged;
-    merged.insert(merged.end(), local_numbers.begin(), 
+    merged.insert(merged.end(), local_numbers.begin(),
                  local_numbers.end());
-    merged.insert(merged.end(), recv_numbers.begin(), 
+    merged.insert(merged.end(), recv_numbers.begin(),
                  recv_numbers.end());
     std::sort(merged.begin(), merged.end());
-    
+
     // Keep the lower half
     for (int i = 0; i < n_local; i++) {
         local_numbers[i] = merged[i];
@@ -179,7 +179,7 @@ The parallel implementation distributes the correlation pairs among processes:
 // Divide work among processes
 int local_size = cor_size / size;
 int remainder = cor_size % size;
-int local_start = rank * local_size + 
+int local_start = rank * local_size +
                   (rank < remainder ? rank : remainder);
 int local_count = local_size + (rank < remainder ? 1 : 0);
 int local_end = local_start + local_count;
