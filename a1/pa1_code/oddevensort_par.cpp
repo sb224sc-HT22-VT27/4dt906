@@ -5,24 +5,56 @@
 #include <thread>
 #include <atomic>
 
-// Fast reusable barrier using atomic spin-wait (avoids OS scheduler overhead
-// of condition_variable for the many short phases in odd-even sort).
+// CPU pause hint: reduces spin-wait power/contention on x86; falls back to
+// yield() on other architectures so threads don't starve the OS scheduler.
+#if defined(__x86_64__) || defined(__i386__)
+#  include <immintrin.h>
+#  define cpu_pause() _mm_pause()
+#elif defined(__aarch64__)
+#  define cpu_pause() asm volatile("yield" ::: "memory")
+#else
+#  define cpu_pause() std::this_thread::yield()
+#endif
+
+// Fast reusable barrier using atomic spin-wait.
+// arrive_and_wait() returns true if any thread called mark_swap() since the
+// previous barrier crossing, enabling early exit when the array is sorted.
 class Barrier {
     int total;
     std::atomic<int> count;
     std::atomic<int> generation;
+    std::atomic<bool> any_swap_this_phase;
+    // Written by the last arriving thread under release, read by others under
+    // acquire (via the generation counter), so no atomic needed here.
+    bool phase_had_swap;
 public:
-    explicit Barrier(int n) : total(n), count(n), generation(0) {}
+    explicit Barrier(int n)
+        : total(n), count(n), generation(0),
+          any_swap_this_phase(false), phase_had_swap(true) {}
 
-    void arrive_and_wait() {
+    // Call before arrive_and_wait() if this thread performed a swap.
+    void mark_swap() {
+        any_swap_this_phase.store(true, std::memory_order_relaxed);
+    }
+
+    // Synchronise all threads.  Returns true if any thread called mark_swap()
+    // during the phase that just completed; false means the array is sorted.
+    bool arrive_and_wait() {
         int gen = generation.load(std::memory_order_acquire);
         if (count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            // Last thread: capture result, reset flag, then release others.
+            phase_had_swap = any_swap_this_phase.load(std::memory_order_relaxed);
+            any_swap_this_phase.store(false, std::memory_order_relaxed);
             count.store(total, std::memory_order_release);
             generation.fetch_add(1, std::memory_order_release);
         } else {
             while (generation.load(std::memory_order_acquire) == gen)
-                std::this_thread::yield();
+                cpu_pause();
         }
+        // phase_had_swap is safely visible to all threads: the last thread
+        // wrote it before the release on generation, and every other thread
+        // reads generation with acquire before reading phase_had_swap.
+        return phase_had_swap;
     }
 };
 
@@ -41,13 +73,19 @@ void oddeven_sort_thread(std::vector<int>& numbers, int thread_id, int num_threa
         int rem = num_pairs % num_threads;
         int pair_start = thread_id * per + (thread_id < rem ? thread_id : rem);
         int pair_end   = pair_start + per + (thread_id < rem ? 1 : 0);
+        bool local_swapped = false;
         for (int k = pair_start; k < pair_end; k++) {
             int j = start + 2 * k;
             if (numbers[j] > numbers[j + 1]) {
                 std::swap(numbers[j], numbers[j + 1]);
+                local_swapped = true;
             }
         }
-        barrier.arrive_and_wait();
+        if (local_swapped)
+            barrier.mark_swap();
+        // Early exit: if no thread swapped anything, the array is sorted.
+        if (!barrier.arrive_and_wait())
+            break;
     }
 }
 
