@@ -56,9 +56,17 @@ void print_sort_status(std::vector<int> numbers)
     std::cout << "The input is sorted?: " << (std::is_sorted(numbers.begin(), numbers.end()) == 0 ? "False" : "True") << std::endl;
 }
 
-int main()
+int main(int argc, char** argv)
 {
-    constexpr unsigned int size = 1 << 19; // Number of elements in the input
+    unsigned int size = 524288; // Default 2^19
+    if (argc > 1) {
+        try {
+            size = static_cast<unsigned int>(std::stoul(argv[1]));
+        } catch (...) {
+            std::cerr << "Invalid size argument. Using default: " << size << "\n";
+        }
+    }
+
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
     if (num_threads == 0) num_threads = 4;
 
@@ -84,6 +92,7 @@ int main()
 
     auto end = std::chrono::steady_clock::now();
 
+    std::cout << "Size: " << size << "\n";
     print_sort_status(numbers);
     std::cout << "Elapsed time =  " << std::chrono::duration<double>(end - start).count() << " sec\n";
 

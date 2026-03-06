@@ -38,8 +38,8 @@ for n in 64 128 256 512 1024 2048 4096; do
     mv "pccout_${n}_${n}.dat" pccout_seq.dat
 
     # --- Parallel run: writes pccout_${n}_${n}.dat, then we store as pccout_par.dat ---
-    if [[ "$par_executable" == *"_mp" ]]; then
-        # Executes if the filename ends in _mp
+    if [[ "$par_executable" == *"_mpi" ]]; then
+        # Executes if the filename ends in _mpi
         par_output=$(mpirun --oversubscribe -np 4 "$par_executable" "$n" "$n" "$SEED" 2>/dev/null)
     else
         # Executes for everything else
