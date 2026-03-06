@@ -56,8 +56,11 @@ __global__ void kernel_mm_std(const double *matrix, const double *mean,
 // ─────────────────────────────────────────────────────────────────────────────
 // Kernel 3: compute Pearson correlations.
 //
-// Grid layout: one block per sample1 (blockIdx.x = sample1).
-// Threads within the block stride over all sample2 > sample1.
+// Uses interleaved (strided) row assignment matching pcc_par.cpp's approach:
+// thread with global id tid handles sample1 = tid, tid+total_threads, ...
+// This balances work: heavy rows (many pairs) are spread evenly across
+// threads, avoiding load imbalance (same strategy as pearson_thread in
+// pcc_par.cpp).
 //
 // Output index formula matches pcc_seq exactly:
 //   offset = (sample1+1)*(sample1+2)/2
@@ -66,20 +69,19 @@ __global__ void kernel_mm_std(const double *matrix, const double *mean,
 __global__ void kernel_pearson(const double *mm, const double *std_dev,
                                 double *output, int rows, int cols)
 {
-    int sample1 = blockIdx.x;
-    if (sample1 >= rows - 1) return;
+    int tid           = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_threads = gridDim.x * blockDim.x;
 
-    // Triangular offset identical to the sequential pcc's inner summ loop
-    int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
-    int num_pairs  = rows - sample1 - 1;
-
-    for (int idx = threadIdx.x; idx < num_pairs; idx += blockDim.x) {
-        int sample2 = sample1 + 1 + idx;
-        double sum  = 0.0;
-        for (int k = 0; k < cols; k++)
-            sum += mm[sample1 * cols + k] * mm[sample2 * cols + k];
-        output[sample1 * rows + sample2 - tri_offset] =
-            sum / (std_dev[sample1] * std_dev[sample2]);
+    for (int sample1 = tid; sample1 < rows - 1; sample1 += total_threads) {
+        // Triangular offset identical to the sequential pcc's inner summ loop
+        int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
+        for (int sample2 = sample1 + 1; sample2 < rows; sample2++) {
+            double sum = 0.0;
+            for (int k = 0; k < cols; k++)
+                sum += mm[sample1 * cols + k] * mm[sample2 * cols + k];
+            output[sample1 * rows + sample2 - tri_offset] =
+                sum / (std_dev[sample1] * std_dev[sample2]);
+        }
     }
 }
 
@@ -158,8 +160,8 @@ int main(int argc, char **argv)
     kernel_means<<<row_blocks, threads>>>(d_matrix, d_mean, ROWS, COLS);
     kernel_mm_std<<<row_blocks, threads>>>(d_matrix, d_mean,
                                            d_mm, d_std, ROWS, COLS);
-    // One block per sample1 row; 256 threads stride over sample2 values
-    kernel_pearson<<<ROWS - 1, 256>>>(d_mm, d_std, d_output, ROWS, COLS);
+    // Interleaved assignment: each thread handles sample1 = tid, tid+total, ...
+    kernel_pearson<<<row_blocks, threads>>>(d_mm, d_std, d_output, ROWS, COLS);
 
     cudaDeviceSynchronize();
     auto t1 = std::chrono::steady_clock::now();
