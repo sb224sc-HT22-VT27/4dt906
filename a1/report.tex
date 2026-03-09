@@ -144,15 +144,15 @@ The default input size is $2^{19} = 524\,288$ elements; additional sizes were al
 \hline
 \textbf{Input size} & \textbf{Threads} & \textbf{Sequential (s)} & \textbf{Parallel (s)} & \textbf{Speedup} \\
 \hline
-$100000$ & 32 & 3.94825 & 0.749985 & 5.26x \\
+$100\,000$ & 32 & 3.94825 & 0.749985 & 5.26x \\
 $2^{19}$ & 32 & 131.659 & 14.073 & 9.35x \\
-$100000$ & 32 & 3.99279 & 0.514602 & 7.75x \\
+$100\,000$ & 32 & 3.99279 & 0.514602 & 7.75x \\
 $2^{19}$ & 32 & 132.319 & 10.3626 & 12.76x \\
-$100000$ & 32 & 3.94861 & 0.556298 & 7.09x \\
+$100\,000$ & 32 & 3.94861 & 0.556298 & 7.09x \\
 $2^{19}$ & 32 & 131.531 & 13.2148 & 9.95x \\
-$100000$ & 32 & 3.99469 & 0.719911 & 5.54x \\
+$100\,000$ & 32 & 3.99469 & 0.719911 & 5.54x \\
 $2^{19}$ & 32 & 133.462 & 13.5309 & 9.86x \\
-$100000$ & 32 & 3.73586 & 0.688854 & 5.42x \\
+$100\,000$ & 32 & 3.73586 & 0.688854 & 5.42x \\
 $2^{19}$ & 32 & 132.198 & 11.6074 & 11.38x \\
 \hline
 \end{tabular}
@@ -258,7 +258,33 @@ $4096 \times 4096$ & 32 & 21.57692 & 1.47066 & 14.682x \\
 
 \subsection{Scalability and Observed Behaviour}
 
-\textbf{[TODO: fill in after benchmarking --- describe speedup trends, crossover points, and any surprising results]}
+The benchmarks reveal distinct scalability profiles for the two algorithms.
+
+\textbf{Odd-Even Sort} achieves a mean speedup of approximately $6.2\times$ for $n = 100\,000$
+and $10.7\times$ for $n = 2^{19}$ using 32 threads (parallel efficiency $\approx 19\%$ and $33\%$
+respectively). The speedup improves with larger inputs because each phase does more useful work
+relative to the fixed cost of the barrier synchronisation. However, the algorithm requires $n$
+barrier crossings in total, so synchronisation overhead scales with problem size at the same
+rate as the computation itself, capping efficiency well below the theoretical 32$\times$. Run-to-run
+variability is also noticeable (5.3$\times$--7.8$\times$ for $n = 100\,000$;
+9.4$\times$--12.8$\times$ for $n = 2^{19}$), likely caused by OS scheduling jitter and cache state
+differences between successive runs.
+
+\textbf{PCC} shows a sharp crossover at a matrix size of approximately $256 \times 256$, where
+the parallel and sequential runtimes are nearly identical ($1.03\times$ speedup). Below this
+threshold, thread-spawn overhead, memory setup, and join latency dominate the very short
+computation, leading to a severe slowdown (only $0.02\times$ at $64 \times 64$, i.e.\
+the parallel version is $\approx 50\times$ slower). Above the crossover the computation grows as
+$O(m^{2}n)$ and the speedup rises rapidly, reaching $10.7\times$ at $1024 \times 1024$,
+$14.1\times$ at $2048 \times 2048$, and $14.7\times$ at $4096 \times 4096$ (parallel efficiency
+$\approx 46\%$). The levelling-off between 2048 and 4096 suggests that memory-bandwidth saturation
+is beginning to limit further gains.
+
+A somewhat surprising result is that the odd-even sort achieves a comparable peak speedup
+($\approx 10.7\times$) to PCC at large sizes, despite requiring $n \approx 500\,000$ barrier
+synchronisations. The reason is that each synchronisation is extremely lightweight (spin-wait on
+a shared atomic counter) and the per-phase computation---even with 32 threads handling $\approx 8\,000$
+compare-swap pairs each---is itself substantial enough to amortise the barrier cost.
 \begin{itemize}
     \item \textbf{Odd-Even Sort}: The algorithm performs $n$ phases with a barrier between each
           phase. Synchronisation overhead grows with thread count, potentially limiting scalability
