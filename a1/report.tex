@@ -283,8 +283,8 @@ is beginning to limit further gains.
 A somewhat surprising result is that the odd-even sort achieves a comparable peak speedup
 ($\approx 10.7\times$) to PCC at large sizes, despite requiring $n \approx 500\,000$ barrier
 synchronisations. The reason is that each synchronisation is extremely lightweight (spin-wait on
-a shared atomic counter) and the per-phase computation---even with 32 threads handling $\approx 8\,000$
-compare-swap pairs each---is itself substantial enough to amortise the barrier cost.
+a shared atomic counter) and the per-phase computation, even with 32 threads handling $\approx 8\,000$
+compare-swap pairs each, is itself substantial enough to amortise the barrier cost.
 \begin{itemize}
     \item \textbf{Odd-Even Sort}: The algorithm performs $n$ phases with a barrier between each
           phase. Synchronisation overhead grows with thread count, potentially limiting scalability
