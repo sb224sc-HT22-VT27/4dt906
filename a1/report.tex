@@ -37,8 +37,7 @@ Odd-Even Sort and Pearson Correlation Coefficient (C/C++)}
 This report presents parallel implementations of two algorithms: the odd-even transposition sort
 and the Pearson correlation coefficient (PCC). Both algorithms are implemented using C++
 \texttt{std::thread} for shared-memory parallelism. Correctness is validated against the provided
-sequential reference implementations. Performance results and speedup measurements are to be
-filled in after benchmarking.
+sequential reference implementations.
 \end{abstract}
 
 \tableofcontents
@@ -66,11 +65,11 @@ these references without modifying them.
 \section{Benchmarking Setup}
 
 \begin{itemize}
-    \item \textbf{Hardware}: \textbf{[TODO: fill in CPU model, core count, RAM]}
-    \item \textbf{Operating System}: \textbf{[TODO: fill in OS and kernel version]}
+    \item \textbf{Hardware}: \textbf{CPU: AMD Ryzen 9 5950X, 16-Cores, 32GB RAM}
+    \item \textbf{Operating System}: \textbf{WSL Ubuntu 24.04.4 LTS and Kernal 6.6.87.2-microsoft-standard-WSL2}
     \item \textbf{Compiler}: g++ with \texttt{-O2} optimisation, C++17 standard
-    \item \textbf{Thread counts tested}: \textbf{[TODO: e.g.\ 1, 2, 4, 8, \ldots]}
-    \item \textbf{Number of runs per configuration}: \textbf{[TODO: e.g.\ 3 runs, median reported]}
+    \item \textbf{Thread counts tested}: \textbf{4 and 32 threads}
+    \item \textbf{Number of runs per configuration}: \textbf{5 runs}
 \end{itemize}
 
 \section{Odd-Even Transposition Sort}
@@ -145,9 +144,16 @@ The default input size is $2^{19} = 524\,288$ elements; additional sizes were al
 \hline
 \textbf{Input size} & \textbf{Threads} & \textbf{Sequential (s)} & \textbf{Parallel (s)} & \textbf{Speedup} \\
 \hline
-$2^{19}$ & - & - & - & - \\
-$2^{19}$ & - & - & - & - \\
-$2^{19}$ & - & - & - & - \\
+$100000$ & 32 & 3.94825 & 0.749985 & 5.26x \\
+$2^{19}$ & 32 & 131.659 & 14.073 & 9.35x \\
+$100000$ & 32 & 3.99279 & 0.514602 & 7.75x \\
+$2^{19}$ & 32 & 132.319 & 10.3626 & 12.76x \\
+$100000$ & 32 & 3.94861 & 0.556298 & 7.09x \\
+$2^{19}$ & 32 & 131.531 & 13.2148 & 9.95x \\
+$100000$ & 32 & 3.99469 & 0.719911 & 5.54x \\
+$2^{19}$ & 32 & 133.462 & 13.5309 & 9.86x \\
+$100000$ & 32 & 3.73586 & 0.688854 & 5.42x \\
+$2^{19}$ & 32 & 132.198 & 11.6074 & 11.38x \\
 \hline
 \end{tabular}
 \caption{Odd-Even Sort --- \texttt{std::thread} implementation}
@@ -222,6 +228,13 @@ The provided \texttt{verify} program compares the floating-point output files of
 and parallel implementations. The parallel version is validated for all tested matrix sizes.
 
 \subsection{Performance Results --- Pearson Correlation Coefficient}
+The table entries are computed by
+
+$$
+Mean = \frac{\sum{values}}{N}
+$$
+
+where $N$ is the number of runs and $Mean$ is the reported values.
 
 \begin{table}[h]
 \centering
@@ -229,13 +242,13 @@ and parallel implementations. The parallel version is validated for all tested m
 \hline
 \textbf{Matrix size} & \textbf{Threads} & \textbf{Sequential (s)} & \textbf{Parallel (s)} & \textbf{Speedup} \\
 \hline
-$64 \times 64$     & - & - & - & - \\
-$128 \times 128$   & - & - & - & - \\
-$256 \times 256$   & - & - & - & - \\
-$512 \times 512$   & - & - & - & - \\
-$1024 \times 1024$ & - & - & - & - \\
-$2048 \times 2048$ & - & - & - & - \\
-$4096 \times 4096$ & - & - & - & - \\
+$64 \times 64$     & 32 & 0.00010 & 0.00472 & 0.020x \\
+$128 \times 128$   & 32 & 0.00062 & 0.00468 & 0.132x \\
+$256 \times 256$   & 32 & 0.00496 & 0.00482 & 1.028x \\
+$512 \times 512$   & 32 & 0.04012 & 0.00788 & 5.094x \\
+$1024 \times 1024$ & 32 & 0.32336 & 0.03034 & 10.660x \\
+$2048 \times 2048$ & 32 & 2.67114 & 0.18982 & 14.090x \\
+$4096 \times 4096$ & 32 & 21.57692 & 1.47066 & 14.682x \\
 \hline
 \end{tabular}
 \caption{PCC --- \texttt{std::thread} implementation}
@@ -262,8 +275,7 @@ $4096 \times 4096$ & - & - & - & - \\
 
 \begin{itemize}
     \item \textbf{Odd-Even Sort}: Contiguous pair-block assignment improves spatial locality.
-          Each thread accesses a contiguous region of the array, reducing cache-line contention
-          between threads.
+          Each thread accesses a contiguous region of the array, reducing cache-line contention between threads.
     \item \textbf{PCC}: Each thread reads the full mean-subtracted matrix rows it needs; rows
           are accessed sequentially, maintaining good cache behaviour.
 \end{itemize}
@@ -274,8 +286,7 @@ $4096 \times 4096$ & - & - & - & - \\
     \item \textbf{Odd-Even Sort}: The per-thread workload is perfectly balanced since each
           active phase has the same number of pairs and these are distributed evenly.
     \item \textbf{PCC}: The interleaved (round-robin) row assignment in step 3 distributes
-          the triangular workload evenly across threads, avoiding the imbalance that would arise
-          from a simple contiguous partition.
+          the triangular workload evenly across threads, avoiding the imbalance that would arise from a simple contiguous partition.
 \end{itemize}
 
 \section{Conclusion}
@@ -283,17 +294,5 @@ $4096 \times 4096$ & - & - & - & - \\
 Both odd-even sort and the Pearson correlation coefficient were parallelised successfully using
 C++ \texttt{std::thread} for shared-memory execution. Correctness was validated against the
 provided sequential reference programs.
-
-Performance results and speedup values will be added after benchmarking on the target hardware.
-The implementations are expected to achieve positive speedup ($>2\times$) for non-trivial input
-sizes, with efficiency improving as problem size grows and the compute-to-overhead ratio
-increases.
-
-\section*{References}
-
-\begin{itemize}
-    \item Quinn, M.~J. \textit{Parallel Programming in C with MPI and OpenMP}. McGraw-Hill, 2004.
-    \item Course material: \texttt{pa1\_26.pdf} --- Programming Assignment 1 instructions.
-\end{itemize}
 
 \end{document}
