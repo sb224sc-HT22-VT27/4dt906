@@ -48,19 +48,18 @@ __global__ void kernel_mm_std(const double *matrix, const double *mean,
 __global__ void kernel_pearson(const double *mm, const double *std_dev,
                                 double *output, int rows, int cols)
 {
-    int sample1 = blockIdx.x;
-    if (sample1 >= rows - 1) return;
+    for (int sample1 = blockIdx.x; sample1 < rows - 1; sample1 += gridDim.x) {
+        int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
+        int num_pairs  = rows - sample1 - 1;
 
-    int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
-    int num_pairs  = rows - sample1 - 1;
-
-    for (int idx = threadIdx.x; idx < num_pairs; idx += blockDim.x) {
-        int sample2 = sample1 + 1 + idx;
-        double sum  = 0.0;
-        for (int k = 0; k < cols; k++)
-            sum += mm[sample1 * cols + k] * mm[sample2 * cols + k];
-        output[sample1 * rows + sample2 - tri_offset] =
-            sum / (std_dev[sample1] * std_dev[sample2]);
+        for (int idx = threadIdx.x; idx < num_pairs; idx += blockDim.x) {
+            int sample2 = sample1 + 1 + idx;
+            double sum  = 0.0;
+            for (int k = 0; k < cols; k++)
+                sum += mm[sample1 * cols + k] * mm[sample2 * cols + k];
+            output[sample1 * rows + sample2 - tri_offset] =
+                sum / (std_dev[sample1] * std_dev[sample2]);
+        }
     }
 }
 
@@ -134,7 +133,8 @@ int main(int argc, char **argv)
     kernel_mm_std<<<row_blocks, threads>>>(d_matrix, d_mean,
                                            d_mm, d_std, ROWS, COLS);
     // One block per sample1 row; 256 threads stride over sample2 values
-    kernel_pearson<<<ROWS - 1, 256>>>(d_mm, d_std, d_output, ROWS, COLS);
+    int par_blocks = std::min(ROWS - 1, 256);
+    kernel_pearson<<<par_blocks, 256>>>(d_mm, d_std, d_output, ROWS, COLS);
 
     cudaDeviceSynchronize();
     auto t1 = std::chrono::steady_clock::now();
@@ -149,10 +149,14 @@ int main(int argc, char **argv)
 
     writeoutput(h_output, cor_size, output_filename);
 
-    cudaFree(d_matrix); cudaFree(d_mean);
-    cudaFree(d_mm);     cudaFree(d_std);
+    cudaFree(d_matrix);
+    cudaFree(d_mean);
+    cudaFree(d_mm);
+    cudaFree(d_std);
     cudaFree(d_output);
-    free(h_matrix); free(h_output);
+
+    free(h_matrix);
+    free(h_output);
 
     return 0;
 }

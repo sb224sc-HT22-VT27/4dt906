@@ -45,5 +45,5 @@ int main(int argc, char** argv)
     oddeven_sort(numbers);
     auto end = std::chrono::steady_clock::now();
     print_sort_status(numbers);
-    std::cout << "Elapsed time =  " << std::chrono::duration<double>(end - start).count() << " sec\n";
+    std::cout << "Elapsed time = " << std::chrono::duration<double>(end - start).count() << " sec\n";
 }

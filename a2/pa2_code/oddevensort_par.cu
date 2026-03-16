@@ -6,20 +6,13 @@
 #include <cstdlib>
 #include <ctime>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Single-block kernel: all N phases are executed inside ONE kernel launch.
-// Threads within the block synchronize after each phase using __syncthreads().
-// Each thread may handle more than one pair when N/2 > blockDim.x.
-// ─────────────────────────────────────────────────────────────────────────────
 __global__ void oddeven_sort_singleblock(int *d_data, int n)
 {
     int tid    = threadIdx.x;
     int stride = blockDim.x;
 
     for (int phase = 0; phase < n; phase++) {
-        int start = phase & 1;   // 0 = even phase, 1 = odd phase
-        // Each thread covers pairs starting at (start + 2*tid), then strides
-        // by 2*stride so all pairs in [start, n-2] are covered collectively.
+        int start = phase & 1;
         for (int j = start + 2 * tid; j < n - 1; j += 2 * stride) {
             if (d_data[j] > d_data[j + 1]) {
                 int tmp        = d_data[j];
@@ -31,11 +24,6 @@ __global__ void oddeven_sort_singleblock(int *d_data, int n)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Multi-block kernel: one phase per kernel launch.
-// The host launches this kernel N times; implicit global synchronization
-// happens between kernel launches.
-// ─────────────────────────────────────────────────────────────────────────────
 __global__ void oddeven_phase_multiblock(int *d_data, int n, int phase)
 {
     int idx   = blockIdx.x * blockDim.x + threadIdx.x;
@@ -50,9 +38,6 @@ __global__ void oddeven_phase_multiblock(int *d_data, int n, int phase)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Host-side correctness check
-// ─────────────────────────────────────────────────────────────────────────────
 static bool is_sorted_check(const std::vector<int>& v)
 {
     for (size_t i = 0; i + 1 < v.size(); i++)
@@ -60,13 +45,10 @@ static bool is_sorted_check(const std::vector<int>& v)
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Run single-block variant and print timing + correctness
-// ─────────────────────────────────────────────────────────────────────────────
 static void run_singleblock(const std::vector<int>& h_input)
 {
     int n = static_cast<int>(h_input.size());
-    std::vector<int> h_data = h_input;   // work on a copy
+    std::vector<int> h_data = h_input;
 
     int *d_data;
     if (cudaMalloc(&d_data, n * sizeof(int)) != cudaSuccess) {
@@ -95,16 +77,13 @@ static void run_singleblock(const std::vector<int>& h_input)
     std::cout << "[Single-block] n=" << n
               << "  threads=" << threads
               << "  sorted=" << (sorted ? "Yes" : "No")
-              << "  Elapsed time =  " << elapsed << " sec\n";
+              << "  Elapsed time = " << elapsed << " sec\n";
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Run multi-block variant and print timing + correctness
-// ─────────────────────────────────────────────────────────────────────────────
 static void run_multiblock(const std::vector<int>& h_input)
 {
     int n = static_cast<int>(h_input.size());
-    std::vector<int> h_data = h_input;   // work on a copy
+    std::vector<int> h_data = h_input;
 
     int *d_data;
     if (cudaMalloc(&d_data, n * sizeof(int)) != cudaSuccess) {
@@ -135,20 +114,23 @@ static void run_multiblock(const std::vector<int>& h_input)
     std::cout << "[Multi-block]  n=" << n
               << "  blocks=" << blocks
               << "  sorted=" << (sorted ? "Yes" : "No")
-              << "  Elapsed time =  " << elapsed << " sec\n";
+              << "  Elapsed time = " << elapsed << " sec\n";
 }
 
 int main(int argc, char **argv)
 {
-    int n = 524288; // Default 2^19
-    if (argc >= 2) n = std::atoi(argv[1]);
+    unsigned int size = 524288; // Default 2^19
+    if (argc > 1) {
+        try {
+            size = static_cast<unsigned int>(std::stoul(argv[1]));
+        } catch (...) {
+            std::cerr << "Invalid size argument. Using default: " << size << "\n";
+        }
+    }
 
-    std::vector<int> numbers(n);
+    std::vector<int> numbers(size);
     srand(static_cast<unsigned>(time(nullptr)));
     std::generate(numbers.begin(), numbers.end(), rand);
-
-    std::cout << "Odd-Even Sort - CUDA  (n=" << n << ")\n";
-    std::cout << "----------------------------------------------\n";
 
     run_singleblock(numbers);
     run_multiblock(numbers);
