@@ -140,15 +140,14 @@ static void run_multiblock(const std::vector<int>& h_input)
 
 int main(int argc, char **argv)
 {
-    // Default: 2^19 elements as specified by the assignment benchmarking requirement
-    int n = (1 << 19);
+    int n = 524288; // Default 2^19
     if (argc >= 2) n = std::atoi(argv[1]);
 
     std::vector<int> numbers(n);
     srand(static_cast<unsigned>(time(nullptr)));
     std::generate(numbers.begin(), numbers.end(), rand);
 
-    std::cout << "Odd-Even Sort – CUDA  (n=" << n << ")\n";
+    std::cout << "Odd-Even Sort - CUDA  (n=" << n << ")\n";
     std::cout << "----------------------------------------------\n";
 
     run_singleblock(numbers);

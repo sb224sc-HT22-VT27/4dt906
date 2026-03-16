@@ -35,7 +35,7 @@ void calcmean(double *matrix, double *mean){
 }
 
 /**
- * Calculate matrix - rowmean, and standard deviation for every row 
+ * Calculate matrix - rowmean, and standard deviation for every row
  */
 void calc_mm_std(double *matrix, double *mean, double *mm, double *std){
 	int i,j;
@@ -73,10 +73,10 @@ void pearson(double *mm, double *std, double *output){
 }
 
 void pearson_seq(double *input, double *output, int cor_size){
-    
+
     double *mean = (double*)malloc(sizeof(double) * ROWS);
 	double *std  = (double*)malloc(sizeof(double) * ROWS);
-	
+
 	if(mean == NULL || std == NULL){
         std::fprintf(stderr, "did exit\n");
 		std::exit(0);
@@ -86,7 +86,7 @@ void pearson_seq(double *input, double *output, int cor_size){
         std::fprintf(stderr, "did exit\n");
 		std::exit(0);
 	}
-    
+
     calcmean(input, mean);
 	calc_mm_std(input, mean, minusmean, std);
 	pearson(minusmean, std, output);
@@ -108,7 +108,7 @@ void writeoutput(double *output, int cor_size, char *name)
 }
 
 int main(int argc, char **argv){
-	
+
 	if (argc < 3) { std::fprintf(stderr, "usage: %s matrix_height matrix_width [seed]\n", argv[0]); std::exit(-1); }
 
 	ROWS = atoi(argv[1]);
@@ -123,7 +123,7 @@ int main(int argc, char **argv){
 	//used to generate the correct filename
 	char output_filename[30];
 	snprintf(output_filename, 30, "pccout_%d_%d.dat", ROWS, COLS);
-	
+
 	//calculates the size of the output
 	long long cor_size = ROWS - 1;
     cor_size *= ROWS;
@@ -136,7 +136,7 @@ int main(int argc, char **argv){
 	if(matrix == NULL){
 		return(1);
 	}
-	
+
 	generatematrix(matrix, seed);
 
 	/* Chrono timer (same style as oddevensort) */
@@ -145,7 +145,7 @@ int main(int argc, char **argv){
 	auto end = std::chrono::steady_clock::now();
 	std::cout << "Elapsed time =  " << std::fixed << std::setprecision(4) << std::chrono::duration<double>(end - start).count() << " sec\n";
 
-	writeoutput(output, cor_size, output_filename);	
+	writeoutput(output, cor_size, output_filename);
 
 	free(output);
 	free(matrix);

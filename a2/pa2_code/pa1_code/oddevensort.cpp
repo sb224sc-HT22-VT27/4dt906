@@ -22,9 +22,16 @@ void print_sort_status(std::vector<int> numbers)
     std::cout << "The input is sorted?: " << (std::is_sorted(numbers.begin(), numbers.end()) == 0 ? "False" : "True") << std::endl;
 }
 
-int main()
+int main(int argc, char** argv)
 {
-    constexpr unsigned int size = 100000; // Number of elements in the input
+    unsigned int size = 524288; // Default 2^19
+    if (argc > 1) {
+        try {
+            size = static_cast<unsigned int>(std::stoul(argv[1]));
+        } catch (...) {
+            std::cerr << "Invalid size argument. Using default: " << size << "\n";
+        }
+    }
 
     // Initialize a vector with integers of value 0
     std::vector<int> numbers(size);
@@ -32,6 +39,7 @@ int main()
     srand(time(0));
     std::generate(numbers.begin(), numbers.end(), rand);
 
+    std::cout << "Size: " << size << "\n";
     print_sort_status(numbers);
     auto start = std::chrono::steady_clock::now();
     oddeven_sort(numbers);

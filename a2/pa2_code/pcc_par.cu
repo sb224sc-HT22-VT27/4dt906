@@ -1,4 +1,6 @@
+#ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE 600
+#endif
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cstdlib>
@@ -10,9 +12,6 @@
 static int ROWS = 128;
 static int COLS = 128;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Host: generate matrix with seeded drand48 (identical to pcc_seq)
-// ─────────────────────────────────────────────────────────────────────────────
 static void generatematrix(double *matrix, unsigned long seed)
 {
     srand48((long)seed);
@@ -20,9 +19,6 @@ static void generatematrix(double *matrix, unsigned long seed)
         matrix[i] = drand48();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Kernel 1: compute row means  (one thread per row)
-// ─────────────────────────────────────────────────────────────────────────────
 __global__ void kernel_means(const double *matrix, double *mean,
                               int rows, int cols)
 {
@@ -34,10 +30,6 @@ __global__ void kernel_means(const double *matrix, double *mean,
     mean[row] = sum / cols;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Kernel 2: compute mean-adjusted matrix (mm) and std per row
-//           (one thread per row)
-// ─────────────────────────────────────────────────────────────────────────────
 __global__ void kernel_mm_std(const double *matrix, const double *mean,
                                double *mm, double *std_dev,
                                int rows, int cols)
@@ -53,23 +45,12 @@ __global__ void kernel_mm_std(const double *matrix, const double *mean,
     std_dev[row] = sqrt(sum);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Kernel 3: compute Pearson correlations.
-//
-// Grid layout: one block per sample1 (blockIdx.x = sample1).
-// Threads within the block stride over all sample2 > sample1.
-//
-// Output index formula matches pcc_seq exactly:
-//   offset = (sample1+1)*(sample1+2)/2
-//   output[sample1*rows + sample2 - offset] = r
-// ─────────────────────────────────────────────────────────────────────────────
 __global__ void kernel_pearson(const double *mm, const double *std_dev,
                                 double *output, int rows, int cols)
 {
     int sample1 = blockIdx.x;
     if (sample1 >= rows - 1) return;
 
-    // Triangular offset identical to the sequential pcc's inner summ loop
     int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
     int num_pairs  = rows - sample1 - 1;
 
@@ -83,9 +64,6 @@ __global__ void kernel_pearson(const double *mm, const double *std_dev,
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Write output file (identical format to pcc_seq)
-// ─────────────────────────────────────────────────────────────────────────────
 static void writeoutput(const double *output, long long cor_size,
                          const char *name)
 {
@@ -123,7 +101,6 @@ int main(int argc, char **argv)
 
     long long cor_size = (long long)(ROWS - 1) * ROWS / 2;
 
-    // ── Host allocations ────────────────────────────────────────────────────
     double *h_matrix = (double*)malloc(sizeof(double) * ROWS * COLS);
     double *h_output = (double*)malloc(sizeof(double) * cor_size);
     if (!h_matrix || !h_output) {
@@ -133,7 +110,6 @@ int main(int argc, char **argv)
 
     generatematrix(h_matrix, seed);
 
-    // ── Device allocations ──────────────────────────────────────────────────
     double *d_matrix, *d_mean, *d_mm, *d_std, *d_output;
     if (cudaMalloc(&d_matrix, sizeof(double) * ROWS * COLS) != cudaSuccess ||
         cudaMalloc(&d_mean,   sizeof(double) * ROWS)        != cudaSuccess ||
@@ -148,7 +124,6 @@ int main(int argc, char **argv)
     cudaMemcpy(d_matrix, h_matrix, sizeof(double) * ROWS * COLS,
                cudaMemcpyHostToDevice);
 
-    // ── Kernel launches ──────────────────────────────────────────────────────
     int threads    = 256;
     int row_blocks = (ROWS + threads - 1) / threads;
 
@@ -164,7 +139,6 @@ int main(int argc, char **argv)
     cudaDeviceSynchronize();
     auto t1 = std::chrono::steady_clock::now();
 
-    // ── Copy result back ─────────────────────────────────────────────────────
     cudaMemcpy(h_output, d_output, sizeof(double) * cor_size,
                cudaMemcpyDeviceToHost);
 
@@ -175,7 +149,6 @@ int main(int argc, char **argv)
 
     writeoutput(h_output, cor_size, output_filename);
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
     cudaFree(d_matrix); cudaFree(d_mean);
     cudaFree(d_mm);     cudaFree(d_std);
     cudaFree(d_output);
