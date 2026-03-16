@@ -35,10 +35,13 @@ benchmark-odd: oddevensort oddevensort_par
 	@for N in 100000 524288; do \
 	  echo -e "\n=== Size: $$N ==="; \
 	  echo "--- Sequential Output ---"; \
-	  T1=$$(./oddevensort $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$(NF-1)}'); \
+	  T_SEQ=$$(./oddevensort $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$(NF-1)}'); \
 	  echo "--- CUDA Parallel Output ---"; \
-	  T2=$$(./oddevensort_par $$N 2>&1 | tee /dev/tty | grep "Multi-block" | awk '{print $$(NF-1)}'); \
-	  echo "Speedup (size=$$N): $$(echo "scale=2; $$T1 / $$T2" | bc)x"; \
+	  PAR_OUT=$$(./oddevensort_par $$N 2>&1 | tee /dev/tty); \
+	  T_SB=$$(echo "$$PAR_OUT" | grep "Single-block" | awk '{print $$(NF-1)}'); \
+	  T_MB=$$(echo "$$PAR_OUT" | grep "Multi-block"  | awk '{print $$(NF-1)}'); \
+	  echo "Speedup single-block (size=$$N): $$(echo "scale=2; $$T_SEQ / $$T_SB" | bc)x"; \
+	  echo "Speedup multi-block  (size=$$N): $$(echo "scale=2; $$T_SEQ / $$T_MB" | bc)x"; \
 	done
 
 clean:
