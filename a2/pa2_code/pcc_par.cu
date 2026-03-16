@@ -116,7 +116,9 @@ int main(int argc, char **argv)
         cudaMalloc(&d_std,    sizeof(double) * ROWS)        != cudaSuccess ||
         cudaMalloc(&d_output, sizeof(double) * cor_size)    != cudaSuccess) {
         std::fprintf(stderr, "cudaMalloc failed\n");
-        free(h_matrix); free(h_output);
+
+        free(h_matrix);
+        free(h_output);
         return 1;
     }
 
