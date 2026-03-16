@@ -2,6 +2,7 @@
 #include <vector>
 #include <algorithm>
 #include <iostream>
+#include <string>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
@@ -140,8 +141,14 @@ static void run_multiblock(const std::vector<int>& h_input)
 
 int main(int argc, char **argv)
 {
-    int n = 524288; // Default 2^19
-    if (argc >= 2) n = std::atoi(argv[1]);
+    unsigned int n = 524288; // Default 2^19
+    if (argc > 1) {
+        try {
+            n = static_cast<unsigned int>(std::stoul(argv[1]));
+        } catch (...) {
+            std::cerr << "Invalid size argument. Using default: " << n << "\n";
+        }
+    }
 
     std::vector<int> numbers(n);
     srand(static_cast<unsigned>(time(nullptr)));

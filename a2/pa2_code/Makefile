@@ -31,5 +31,15 @@ verify: $(PA1)/verify.c
 benchmark-pcc: pcc_seq pcc_par verify
 	./benchmark.sh ./pcc_seq ./pcc_par ./verify
 
+benchmark-odd: oddevensort oddevensort_par
+	@for N in 100000 524288; do \
+	  echo -e "\n=== Size: $$N ==="; \
+	  echo "--- Sequential Output ---"; \
+	  T1=$$(./oddevensort $$N 2>&1 | tee /dev/tty | grep "Elapsed time" | awk '{print $$(NF-1)}'); \
+	  echo "--- CUDA Parallel Output ---"; \
+	  T2=$$(./oddevensort_par $$N 2>&1 | tee /dev/tty | grep "Multi-block" | awk '{print $$(NF-1)}'); \
+	  echo "Speedup (size=$$N): $$(echo "scale=2; $$T1 / $$T2" | bc)x"; \
+	done
+
 clean:
 	rm -rf oddevensort oddevensort_par pcc_seq pcc_par verify *.dat
