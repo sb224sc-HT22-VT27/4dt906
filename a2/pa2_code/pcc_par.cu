@@ -19,6 +19,7 @@ static void generatematrix(double *matrix, unsigned long seed)
         matrix[i] = drand48();
 }
 
+// One thread per row
 __global__ void kernel_means(const double *matrix, double *mean,
                               int rows, int cols)
 {
@@ -30,6 +31,7 @@ __global__ void kernel_means(const double *matrix, double *mean,
     mean[row] = sum / cols;
 }
 
+// One thread per row
 __global__ void kernel_mm_std(const double *matrix, const double *mean,
                                double *mm, double *std_dev,
                                int rows, int cols)
@@ -45,13 +47,17 @@ __global__ void kernel_mm_std(const double *matrix, const double *mean,
     std_dev[row] = sqrt(sum);
 }
 
+// Each thread computes a dot-product for specific pair rows and norm it by their std
+// Triangular offset to map 2D pair into 1D array
 __global__ void kernel_pearson(const double *mm, const double *std_dev,
                                 double *output, int rows, int cols)
 {
+    // Blocks; `+= gridDim.x` to handle rows exceeding blocks
     for (int sample1 = blockIdx.x; sample1 < rows - 1; sample1 += gridDim.x) {
         int tri_offset = (sample1 + 1) * (sample1 + 2) / 2;
         int num_pairs  = rows - sample1 - 1;
 
+        // Threads; compares `sample1` vs. all subsequent rows `sample2`
         for (int idx = threadIdx.x; idx < num_pairs; idx += blockDim.x) {
             int sample2 = sample1 + 1 + idx;
             double sum  = 0.0;

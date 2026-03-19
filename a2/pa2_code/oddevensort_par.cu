@@ -45,6 +45,10 @@ static bool is_sorted_check(const std::vector<int>& v)
     return true;
 }
 
+// Syncs using `__syncthreads()`
+// Limited to `1024` threads
+// Higher complexity, due to looping
+// Better for smaller datasets
 static void run_singleblock(const std::vector<int>& h_input)
 {
     int n = static_cast<int>(h_input.size());
@@ -80,6 +84,10 @@ static void run_singleblock(const std::vector<int>& h_input)
               << "  Elapsed time = " << elapsed << " sec\n";
 }
 
+// Syncs using Kernal Launch Boundary
+// Scales to GPU capacity
+// Lower complexity, one pair per thread
+// Better for larger datasets
 static void run_multiblock(const std::vector<int>& h_input)
 {
     int n = static_cast<int>(h_input.size());
