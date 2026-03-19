@@ -1,9 +1,9 @@
 # CUDA parallel versions; sequential references live in pa1_code/.
 
-CC       = gcc
-CXX      = g++
-NVCC     = nvcc
-NVCCFLAGS = -O2 -std=c++14 -arch=sm_86
+CC        = gcc
+CXX       = g++
+NVCC      = nvcc
+NVCCFLAGS = -O2 -std=c++14 -arch=sm_86 # Remove `-arch=X` or change `X` to your own gpu archictecture
 
 PA1 = pa1_code
 
