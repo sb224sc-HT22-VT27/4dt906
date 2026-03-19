@@ -60,7 +60,7 @@ static void run_singleblock(const std::vector<int>& h_input)
     }
     cudaMemcpy(d_data, h_data.data(), n * sizeof(int), cudaMemcpyHostToDevice);
 
-    // CUDA max 1024 threads per block; each thread handles ceil(n/2/1024) pairs
+    // max 1024 threads; each thread handles ceil(n/2/1024) pairs
     int threads = std::min(n / 2, 1024);
     if (threads < 1) threads = 1;
 
