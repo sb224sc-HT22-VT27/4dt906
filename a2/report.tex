@@ -56,7 +56,7 @@ For each algorithm a correct sequential reference implementation is provided
 (\texttt{oddevensort.cpp} and \texttt{pcc\_seq.cpp}). Parallel versions were developed on top of
 these references without modifying them.
 
-\section{Benchmaring Setup}
+\section{Benchmarking Setup}
 
 \begin{itemize}
     \item \textbf{Hardware}:
@@ -65,8 +65,8 @@ these references without modifying them.
         \item \textbf{GPU: ASUS TUF RTX 3080 TI GAMING OC}
         \item \textbf{RAM: 32 GB}
     \end{itemize}
-    \item \textbf{Operating System}: \textbf{WSL Ubuntu 24.04.4 LTS and Kernal 6.6.87.2-microsoft-standard-WSL2}
-    \item \textbf{Compiler}: nvcc with \texttt{-O2} optimisation, C++14 standard and architechture specification
+    \item \textbf{Operating System}: \textbf{WSL Ubuntu 24.04.4 LTS and Kernel 6.6.87.2-microsoft-standard-WSL2}
+    \item \textbf{Compiler}: nvcc with \texttt{-O2} optimisation, C++14 standard and architecture specification
     \item \textbf{Thread counts tested}: \textbf{256 and 1024 threads} with varying number of blocks
     \item \textbf{Number of runs per configuration}: \textbf{5 runs}
 \end{itemize}
@@ -107,7 +107,7 @@ Synchronization between phases is achieved with \texttt{\_\_syncthreads()}, whic
 
 \subsubsection{Data Decomposition}
 
-Each thread covers pairs in a sstrided pattern across the active index range. This distributes work evenly when $n/2$ is a multiple of the thread count. The stride layout sacrifices some spatial locality but simplifies the index arithmetic while still handling the remainder edge case.
+Each thread covers pairs in a strided pattern across the active index range. This distributes work evenly when $n/2$ is a multiple of the thread count. The stride layout sacrifices some spatial locality but simplifies the index arithmetic while still handling the remainder edge case.
 
 \subsection{Multi-block}
 
@@ -141,7 +141,7 @@ cudaDeviceSynchronize();
 
 \subsubsection{Synchronization}
 
-Global synchronization between phases is achieved implicitly by the CUDA kernel launch boundary. The GPU executes all threads of kernel launch $k$ before kernel launch $k+1$ begins. No synchronization is required inside the kernel, so the computation can scale frealy based on the number of blockes needed.
+Global synchronization between phases is achieved implicitly by the CUDA kernel launch boundary. The GPU executes all threads of kernel launch $k$ before kernel launch $k+1$ begins. No synchronization is required inside the kernel, so the computation can scale freely based on the number of blocks needed.
 
 \subsubsection{Data Decomposition}
 
@@ -153,7 +153,7 @@ The number of thread blocks is computed to cover all active pairs
     \texttt{blocks} &= \lceil \texttt{pairs} / \texttt{threads\_per\_block} \rceil.
 \end{align}
 
-Each thread is assigned a unique global index \texttt{idx} and computes its pair position as $j = \text{start} + 2\cdot\text{idx}$. A bounds check \texttt{j < n-1} discards surplut threads in the last block, ensuring correctness when $n$ is not evenly divisible by twice the tread count.
+Each thread is assigned a unique global index \texttt{idx} and computes its pair position as $j = \text{start} + 2\cdot\text{idx}$. A bounds check \texttt{j < n-1} discards surplus threads in the last block, ensuring correctness when $n$ is not evenly divisible by twice the thread count.
 
 \subsection{Correctness Validation}
 
@@ -192,7 +192,7 @@ $2^{19}$ & 1024 / 256 & 136.295 & 4.99x & 36.99x \\
 
 \subsection{Parallelization Strategy}
 
-All three steps are parallelized using separate CUDA kernels. Step 1 and 2 are decompose the work by row, assigning one thread per row. Step 3 uses a two-dimensional decomposition, blocks iterate over \texttt{sample1} rows and threads within each block iterate over \texttt{sample2} values, comuting one dot-product per thread.
+All three steps are parallelized using separate CUDA kernels. Step 1 and 2 are decompose the work by row, assigning one thread per row. Step 3 uses a two-dimensional decomposition, blocks iterate over \texttt{sample1} rows and threads within each block iterate over \texttt{sample2} values, computing one dot-product per thread.
 
 \subsubsection{Kernel 1: Row Means (\texttt{kernel\_means})}
 
@@ -268,13 +268,13 @@ matrices with more than 256 rows, the outer \texttt{gridDim.x} stride ensures th
 
 \subsection{Synchronization}
 
-No explicit synchronization is required within any kernel. Step 1, 2, and 3 are separated by implicit kernel launch barriers. So \texttt{kernel\_mm\_std} cannot begin before the \texttt{kernel\_means} has completed. CUDA guarantees sequential execution of kernel launch on the same stream, so no explicit \texttt{cudaDeviceSyncronize()} is needed between the steps.
+No explicit synchronization is required within any kernel. Step 1, 2, and 3 are separated by implicit kernel launch barriers. So \texttt{kernel\_mm\_std} cannot begin before the \texttt{kernel\_means} has completed. CUDA guarantees sequential execution of kernel launch on the same stream, so no explicit \texttt{cudaDeviceSynchronize()} is needed between the steps.
 
 \subsection{Data Decomposition}
 
 Step 1 and 2 have the rows divided into contiguous blocks of 256. Each thread owns exactly one row.
 
-In step 3 each block owns \texttt{sample1} rows via a strided grid loop. Each thread within each block owns a \texttt{sample2} values via a strided thread loop. Each output cell is written by exactly one thread, so no atomic or locking operations are required.
+In step 3 each block owns \texttt{sample1} rows via a strided grid loop. Each thread within each block owns \texttt{sample2} values via a strided thread loop. Each output cell is written by exactly one thread, so no atomic or locking operations are required.
 
 \subsection{Correctness Validation}
 

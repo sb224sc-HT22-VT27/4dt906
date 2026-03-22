@@ -84,7 +84,7 @@ static void run_singleblock(const std::vector<int>& h_input)
               << "  Elapsed time = " << elapsed << " sec\n";
 }
 
-// Syncs using Kernal Launch Boundary
+// Syncs using Kernel Launch Boundary
 // Scales to GPU capacity
 // Lower complexity, one pair per thread
 // Better for larger datasets

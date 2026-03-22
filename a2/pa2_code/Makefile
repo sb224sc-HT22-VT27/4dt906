@@ -3,7 +3,7 @@
 CC        = gcc
 CXX       = g++
 NVCC      = nvcc
-NVCCFLAGS = -O2 -std=c++14 -arch=sm_86 # Remove `-arch=X` or change `X` to your own gpu archictecture
+NVCCFLAGS = -O2 -std=c++14 -arch=sm_86 # Remove `-arch=X` or change `X` to your own gpu architecture
 
 PA1 = pa1_code
 
@@ -16,7 +16,7 @@ oddevensort: $(PA1)/oddevensort.cpp
 pcc_seq: $(PA1)/pcc_seq.cpp
 	$(CXX) $< -lm -std=c++17 -O2 -o $@
 
-# --- Parallell (added) ---
+# --- Parallel (added) ---
 oddevensort_par: oddevensort_par.cu
 	$(NVCC) $(NVCCFLAGS) $< -o $@
 
